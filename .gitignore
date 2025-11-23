@@ -8,3 +8,31 @@ wheels/
 
 # Virtual environments
 .venv
+
+# UV lock file
+uv.lock
+
+# Documentation and guides (excluded from git)
+SCRIPT_MODIFICATION_GUIDE.md
+TUI_IMPLEMENTATION_GUIDE.md
+BUNDLING_GUIDE.md
+IMPLEMENTATION_ROADMAP.md
+QUICK_REFERENCE.md
+TEXTUAL_SETUP_GUIDE.md
+
+# Bundled PowerShell runtime (large files)
+bundled/
+
+# Output reports
+Documents/
+M365Reports/
+
+# Temporary and build files
+*.zip
+*.tar.gz
+*.log
+*.csv
+
+# OS-specific
+.DS_Store
+Thumbs.db
