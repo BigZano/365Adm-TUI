@@ -2,17 +2,17 @@
 
 A professional Terminal User Interface (TUI) for managing Microsoft 365 via PowerShell scripts. Built with Python's Textual framework, this tool provides a secure, user-friendly interface for common M365 administrative tasks.
 
-## 🌟 Features
+## Features
 
-- **🔐 Secure OAuth2 Authentication**: Interactive sign-in with full MFA support
-- **👤 User Management**: Create users with Microsoft Graph API
-- **🔍 Delegate Access Auditing**: Comprehensive mailbox permission analysis
-- **📊 Mailbox Reporting**: Export detailed mailbox information
-- **🔑 MFA & Auth Method Reports**: Audit authentication methods across your tenant
-- **📝 Detailed Logging**: All operations logged for audit trails
-- **🎨 Professional UI**: Clean, intuitive terminal interface with dark/light themes
+- **Secure OAuth2 Authentication**: Interactive sign-in with full MFA support
+- **User Management**: Create users with Microsoft Graph API
+- **Delegate Access Auditing**: Comprehensive mailbox permission analysis
+- **Mailbox Reporting**: Export detailed mailbox information
+- **MFA & Auth Method Reports**: Audit authentication methods across your tenant
+- **Detailed Logging**: All operations logged for audit trails
+- **Professional UI**: Clean, intuitive terminal interface with dark/light themes
 
-## 📋 Prerequisites
+## Prerequisites
 
 ### System Requirements
 - **Operating System**: Linux, macOS, or Windows with WSL2
@@ -76,16 +76,16 @@ Install-Module ExchangeOnlineManagement -Scope CurrentUser -Force
 python main.py
 ```
 
-## 🎯 Usage
+## Usage
 
 ### Main Interface
 When you launch the application, you'll see a menu with available operations:
 
-1. **👤 Create User (Microsoft Graph)**: Create new M365 users with licenses
-2. **🔍 Audit Delegate Access**: Check mailbox delegation permissions
-3. **📊 Export Mailbox Report**: Generate comprehensive mailbox reports
-4. **🔐 MFA Audit (All Users)**: Audit MFA status across all users
-5. **🔑 Authentication Method Report**: Report on auth methods and policies
+1. **Create User (Microsoft Graph)**: Create new M365 users with licenses
+2. **Audit Delegate Access**: Check mailbox delegation permissions
+3. **Export Mailbox Report**: Generate comprehensive mailbox reports
+4. **MFA Audit (All Users)**: Audit MFA status across all users
+5. **Authentication Method Report**: Report on auth methods and policies
 
 ### Authentication Flow
 - Select an operation
@@ -99,10 +99,10 @@ When you launch the application, you'll see a menu with available operations:
 - `c` - Clear output panel
 - `Escape` - Cancel current dialog
 
-## 📁 Directory Structure
+## Directory Structure
 
 ```
-TUI-project/
+365Adm-TUI/
 ├── main.py                 # Main TUI application
 ├── lib/                    # Python library modules
 │   ├── __init__.py
@@ -120,7 +120,7 @@ TUI-project/
 └── README.md             # This file
 ```
 
-## 📊 Output and Reports
+## Output and Reports
 
 All reports are automatically saved to:
 - **Linux/macOS**: `~/Documents/M365Reports/`
@@ -130,7 +130,7 @@ Report files include timestamps and are in CSV format for easy analysis.
 
 Application logs are saved to the `logs/` directory in the project root.
 
-## 🔒 Security Considerations
+## Security Considerations
 
 ### OAuth2 with MFA
 - All scripts use interactive OAuth2 authentication
@@ -149,7 +149,7 @@ Your admin account needs these roles:
 - **Exchange Administrator** (for mailbox operations)
 - **Security Reader** or **Global Reader** (for MFA/auth reports)
 
-## 🛠️ Troubleshooting
+## Troubleshooting
 
 ### "PowerShell (pwsh) not found"
 - Install PowerShell Core (see Prerequisites)
@@ -175,7 +175,7 @@ Your admin account needs these roles:
 - Ensure you're using Python 3.12+: `python --version`
 - Reinstall dependencies: `pip install -r requirements.txt --force-reinstall`
 
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome! Please:
 1. Fork the repository
@@ -184,11 +184,11 @@ Contributions are welcome! Please:
 4. Test thoroughly
 5. Submit a pull request
 
-## 📝 License
+## License
 
 This project is provided as-is for administrative use.
 
-## ⚠️ Disclaimer
+## Disclaimer
 
 This tool performs administrative operations on your Microsoft 365 tenant. Always:
 - Test in a non-production environment first
@@ -196,22 +196,16 @@ This tool performs administrative operations on your Microsoft 365 tenant. Alway
 - Maintain proper backups
 - Follow your organization's change management procedures
 
-## 🆘 Support
+## Support
 
 For issues and questions:
 - Check the Troubleshooting section above
 - Review logs in the `logs/` directory
 - Open an issue on GitHub
 
-## 🗺️ Roadmap
+## Roadmap
 
-- [ ] Batch user operations
-- [ ] License management interface
-- [ ] Group management
-- [ ] Conditional Access policy viewer
-- [ ] Export to multiple formats (JSON, Excel)
-- [ ] Scheduled operations
-- [ ] Configuration file support
+
 
 ---
 
