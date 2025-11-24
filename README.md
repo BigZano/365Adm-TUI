@@ -1,4 +1,4 @@
-# Microsoft 365 Admin TUI 🔷
+# Microsoft 365 Admin TUI
 
 A professional Terminal User Interface (TUI) for managing Microsoft 365 via PowerShell scripts. Built with Python's Textual framework, this tool provides a secure, user-friendly interface for common M365 administrative tasks.
 
@@ -23,7 +23,7 @@ A professional Terminal User Interface (TUI) for managing Microsoft 365 via Powe
 - Microsoft.Graph (Authentication, Users)
 - ExchangeOnlineManagement
 
-## 🚀 Quick Start
+## Quick Start
 
 ### 1. Clone the Repository
 ```bash
