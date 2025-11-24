@@ -4,18 +4,32 @@ A Textual-based Terminal User Interface for managing Microsoft 365 via PowerShel
 """
 
 from textual.app import App, ComposeResult
-from textual.containers import Container, Horizontal, Vertical, ScrollableContainer
-from textual.widgets import Header, Footer, Button, Static, Label, Input
-from textual.screen import Screen
+from textual.containers import Container, Horizontal, Vertical, ScrollableContainer, VerticalScroll
+from textual.widgets import Header, Footer, Button, Static, Label, Input, LoadingIndicator, Rule
+from textual.screen import Screen, ModalScreen
 from textual.binding import Binding
+from textual import work
+from pathlib import Path
 import asyncio
 import os
+import sys
+
+# Add lib directory to path
+sys.path.insert(0, str(Path(__file__).parent / "lib"))
+
+from lib.logger import get_logger, setup_logging
+from lib.config import Config
+
+# Setup logging
+config = Config()
+log_file = setup_logging(config.logs_dir)
+logger = get_logger(__name__)
 
 # ============================================================================
 # INPUT SCREENS FOR EACH SCRIPT
 # ============================================================================
 
-class CreateUserScreen(Screen):
+class CreateUserScreen(ModalScreen):
     """Screen for creating a new user."""
     
     CSS = """
@@ -24,41 +38,76 @@ class CreateUserScreen(Screen):
     }
     
     #dialog {
-        width: 60;
+        width: 70;
         height: auto;
-        border: thick $background 80%;
+        border: thick $primary;
         background: $surface;
-        padding: 1 2;
+        padding: 2;
+    }
+    
+    .dialog-title {
+        text-align: center;
+        text-style: bold;
+        color: $accent;
+        margin-bottom: 1;
+    }
+    
+    .field-label {
+        color: $text;
+        margin: 1 0 0 0;
+    }
+    
+    .field-hint {
+        color: $text-muted;
+        text-style: italic;
+        margin: 0 0 0 1;
     }
     
     Input {
-        margin: 1 0;
+        margin: 0 0 1 0;
     }
     
-    .label {
-        margin: 1 0 0 0;
-        color: $text-muted;
+    .button-row {
+        margin-top: 1;
+        height: auto;
+        align: center middle;
+    }
+    
+    Button {
+        margin: 0 1;
     }
     """
     
-    BINDINGS = [("escape", "app.pop_screen", "Back")]
+    BINDINGS = [("escape", "app.pop_screen", "Cancel")]
     
     def compose(self) -> ComposeResult:
         yield Container(
-            Label("Create New User", classes="title"),
-            Label("Display Name:", classes="label"),
+            Label("➕ Create New Microsoft 365 User", classes="dialog-title"),
+            Rule(line_style="heavy"),
+            Label("Display Name:", classes="field-label"),
+            Label("Full name of the user (e.g., John Doe)", classes="field-hint"),
             Input(placeholder="John Doe", id="display_name"),
-            Label("User Principal Name:", classes="label"),
+            
+            Label("User Principal Name:", classes="field-label"),
+            Label("Email address / login (e.g., john.doe@company.com)", classes="field-hint"),
             Input(placeholder="john.doe@company.com", id="upn"),
-            Label("Usage Location:", classes="label"),
-            Input(placeholder="US", id="location"),
-            Label("Password:", classes="label"),
-            Input(placeholder="Min 8 chars, upper, lower, number", password=True, id="password"),
-            Label("License Index (0 to skip):", classes="label"),
+            
+            Label("Usage Location:", classes="field-label"),
+            Label("2-letter country code (e.g., US, GB, CA)", classes="field-hint"),
+            Input(placeholder="US", id="location", max_length=2),
+            
+            Label("Password:", classes="field-label"),
+            Label("Minimum 8 characters with upper, lower, and numbers", classes="field-hint"),
+            Input(placeholder="Temp@Pass123", password=True, id="password"),
+            
+            Label("License Index (0 to skip licensing):", classes="field-label"),
+            Label("Set to 0 to create without license, or run with -ListLicenses first", classes="field-hint"),
             Input(placeholder="0", id="license_index", value="0"),
+            
             Horizontal(
-                Button("Create User", variant="primary", id="submit"),
+                Button("Create User", variant="success", id="submit"),
                 Button("Cancel", variant="default", id="cancel"),
+                classes="button-row"
             ),
             id="dialog"
         )
@@ -69,22 +118,31 @@ class CreateUserScreen(Screen):
         elif event.button.id == "submit":
             # Collect form data
             data = {
-                "display_name": self.query_one("#display_name", Input).value,
-                "upn": self.query_one("#upn", Input).value,
-                "location": self.query_one("#location", Input).value,
+                "display_name": self.query_one("#display_name", Input).value.strip(),
+                "upn": self.query_one("#upn", Input).value.strip(),
+                "location": self.query_one("#location", Input).value.strip().upper(),
                 "password": self.query_one("#password", Input).value,
-                "license_index": self.query_one("#license_index", Input).value,
+                "license_index": self.query_one("#license_index", Input).value.strip(),
             }
             
             # Validate inputs
             if not all([data["display_name"], data["upn"], data["location"], data["password"]]):
-                self.app.notify("Please fill in all required fields", severity="error")
+                self.app.notify("⚠️ Please fill in all required fields", severity="error")
                 return
             
+            if len(data["location"]) != 2:
+                self.app.notify("⚠️ Location must be 2-letter country code", severity="error")
+                return
+            
+            if len(data["password"]) < 8:
+                self.app.notify("⚠️ Password must be at least 8 characters", severity="error")
+                return
+            
+            logger.info(f"Creating user: {data['upn']}")
             self.dismiss(data)
 
 
-class DelegateAccessScreen(Screen):
+class DelegateAccessScreen(ModalScreen):
     """Screen for delegate access audit."""
     
     CSS = """
@@ -93,35 +151,60 @@ class DelegateAccessScreen(Screen):
     }
     
     #dialog {
-        width: 60;
+        width: 70;
         height: auto;
-        border: thick $background 80%;
+        border: thick $primary;
         background: $surface;
-        padding: 1 2;
+        padding: 2;
+    }
+    
+    .dialog-title {
+        text-align: center;
+        text-style: bold;
+        color: $accent;
+        margin-bottom: 1;
+    }
+    
+    .field-label {
+        color: $text;
+        margin: 1 0 0 0;
+    }
+    
+    .field-hint {
+        color: $text-muted;
+        text-style: italic;
+        margin: 0 0 0 1;
     }
     
     Input {
-        margin: 1 0;
+        margin: 0 0 1 0;
     }
     
-    .label {
-        margin: 1 0 0 0;
-        color: $text-muted;
+    .button-row {
+        margin-top: 1;
+        height: auto;
+        align: center middle;
+    }
+    
+    Button {
+        margin: 0 1;
     }
     """
     
-    BINDINGS = [("escape", "app.pop_screen", "Back")]
+    BINDINGS = [("escape", "app.pop_screen", "Cancel")]
     
     def compose(self) -> ComposeResult:
         yield Container(
-            Label("Audit Delegate Access", classes="title"),
-            Label("Admin Email (for Exchange Online):", classes="label"),
-            Input(placeholder="admin@company.com", id="admin_email"),
-            Label("Target User Email:", classes="label"),
+            Label("🔍 Audit Delegate Access Permissions", classes="dialog-title"),
+            Rule(line_style="heavy"),
+            Label("Target User Email:", classes="field-label"),
+            Label("Email of user to check permissions for", classes="field-hint"),
             Input(placeholder="user@company.com", id="target_email"),
+            
             Horizontal(
-                Button("Run Audit", variant="primary", id="submit"),
+                Button("Run Audit", variant="success", id="submit"),
                 Button("Cancel", variant="default", id="cancel"),
+                classes="button-row"
             ),
             id="dialog"
         )
@@ -131,18 +214,18 @@ class DelegateAccessScreen(Screen):
             self.app.pop_screen()
         elif event.button.id == "submit":
             data = {
-                "admin_email": self.query_one("#admin_email", Input).value,
-                "target_email": self.query_one("#target_email", Input).value,
+                "target_email": self.query_one("#target_email", Input).value.strip(),
             }
             
-            if not all(data.values()):
-                self.app.notify("Please fill in all fields", severity="error")
+            if not data["target_email"]:
+                self.app.notify("⚠️ Please enter target user email", severity="error")
                 return
             
+            logger.info(f"Running delegate access audit for: {data['target_email']}")
             self.dismiss(data)
 
 
-class MailboxExportScreen(Screen):
+class MailboxExportScreen(ModalScreen):
     """Screen for mailbox export."""
     
     CSS = """
@@ -151,93 +234,60 @@ class MailboxExportScreen(Screen):
     }
     
     #dialog {
-        width: 60;
+        width: 70;
         height: auto;
-        border: thick $background 80%;
+        border: thick $primary;
         background: $surface;
-        padding: 1 2;
+        padding: 2;
+    }
+    
+    .dialog-title {
+        text-align: center;
+        text-style: bold;
+        color: $accent;
+        margin-bottom: 1;
+    }
+    
+    .field-label {
+        color: $text;
+        margin: 1 0 0 0;
+    }
+    
+    .field-hint {
+        color: $text-muted;
+        text-style: italic;
+        margin: 0 0 0 1;
     }
     
     Input {
-        margin: 1 0;
+        margin: 0 0 1 0;
     }
     
-    .label {
-        margin: 1 0 0 0;
-        color: $text-muted;
-    }
-    """
-    
-    BINDINGS = [("escape", "app.pop_screen", "Back")]
-    
-    def compose(self) -> ComposeResult:
-        yield Container(
-            Label("Export Mailbox Report", classes="title"),
-            Label("Admin Email (for Exchange Online):", classes="label"),
-            Input(placeholder="admin@company.com", id="admin_email"),
-            Label("Output Path (optional):", classes="label"),
-            Input(placeholder="./MailboxReport.csv", id="output_path", value="./MailboxReport.csv"),
-            Horizontal(
-                Button("Export", variant="primary", id="submit"),
-                Button("Cancel", variant="default", id="cancel"),
-            ),
-            id="dialog"
-        )
-    
-    async def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "cancel":
-            self.app.pop_screen()
-        elif event.button.id == "submit":
-            data = {
-                "admin_email": self.query_one("#admin_email", Input).value,
-                "output_path": self.query_one("#output_path", Input).value,
-            }
-            
-            if not data["admin_email"]:
-                self.app.notify("Please enter admin email", severity="error")
-                return
-            
-            self.dismiss(data)
-
-
-class AuthMethodScreen(Screen):
-    """Screen for authentication method report."""
-    
-    CSS = """
-    AuthMethodScreen {
+    .button-row {
+        margin-top: 1;
+        height: auto;
         align: center middle;
     }
     
-    #dialog {
-        width: 60;
-        height: auto;
-        border: thick $background 80%;
-        background: $surface;
-        padding: 1 2;
-    }
-    
-    Input {
-        margin: 1 0;
-    }
-    
-    .label {
-        margin: 1 0 0 0;
-        color: $text-muted;
+    Button {
+        margin: 0 1;
     }
     """
     
-    BINDINGS = [("escape", "app.pop_screen", "Back")]
+    BINDINGS = [("escape", "app.pop_screen", "Cancel")]
     
     def compose(self) -> ComposeResult:
         yield Container(
-            Label("Authentication Method Report", classes="title"),
-            Label("Admin Email (for Exchange Online):", classes="label"),
-            Input(placeholder="admin@company.com", id="admin_email"),
-            Label("Output Path:", classes="label"),
-            Input(placeholder="./UserAuthPolicies.csv", id="output_path", value="./UserAuthPolicies.csv"),
+            Label("📊 Export Mailbox Report", classes="dialog-title"),
+            Rule(line_style="heavy"),
+            Label("Mailbox Type:", classes="field-label"),
+            Label("Options: All, UserMailbox, SharedMailbox, RoomMailbox, EquipmentMailbox", classes="field-hint"),
+            Input(placeholder="All", id="mailbox_type", value="All"),
+            
             Horizontal(
-                Button("Generate Report", variant="primary", id="submit"),
+                Button("Export Report", variant="success", id="submit"),
                 Button("Cancel", variant="default", id="cancel"),
+                classes="button-row"
             ),
             id="dialog"
         )
@@ -247,14 +297,15 @@ class AuthMethodScreen(Screen):
             self.app.pop_screen()
         elif event.button.id == "submit":
             data = {
-                "admin_email": self.query_one("#admin_email", Input).value,
-                "output_path": self.query_one("#output_path", Input).value,
+                "mailbox_type": self.query_one("#mailbox_type", Input).value.strip() or "All",
             }
             
-            if not data["admin_email"]:
-                self.app.notify("Please enter admin email", severity="error")
+            valid_types = ["All", "UserMailbox", "SharedMailbox", "RoomMailbox", "EquipmentMailbox"]
+            if data["mailbox_type"] not in valid_types:
+                self.app.notify(f"⚠️ Invalid mailbox type. Use: {', '.join(valid_types)}", severity="error")
                 return
             
+            logger.info(f"Exporting mailbox report for type: {data['mailbox_type']}")
             self.dismiss(data)
 
 
@@ -263,93 +314,193 @@ class AuthMethodScreen(Screen):
 # ============================================================================
 
 class M365AdminApp(App):
-    """A Textual app for Microsoft 365 administration."""
+    """A professional Textual app for Microsoft 365 administration."""
     
     CSS = """
     Screen {
         background: $surface;
     }
     
-    Container {
+    #main-container {
+        height: 100%;
+        overflow-y: auto;
+    }
+    
+    #header-section {
         height: auto;
-        margin: 1 2;
+        background: $boost;
+        padding: 1 2;
+        margin-bottom: 1;
+    }
+    
+    .app-title {
+        text-align: center;
+        text-style: bold;
+        color: $accent;
+        margin-bottom: 1;
+    }
+    
+    .app-subtitle {
+        text-align: center;
+        color: $text-muted;
+        margin-bottom: 1;
+    }
+    
+    .info-text {
+        text-align: center;
+        color: $success;
+        text-style: italic;
+    }
+    
+    #menu-section {
+        height: auto;
+        padding: 0 2;
+        margin-bottom: 1;
+    }
+    
+    .section-title {
+        text-style: bold;
+        color: $text;
+        margin: 1 0;
+    }
+    
+    .menu-buttons {
+        height: auto;
     }
     
     Button {
-        margin: 1 2;
-        min-width: 40;
+        width: 100%;
+        margin: 0 0 1 0;
+        min-height: 3;
     }
     
-    .title {
-        content-align: center middle;
-        text-style: bold;
-        color: $accent;
-        margin: 1;
-        text-style: bold underline;
+    #output-section {
+        height: auto;
+        padding: 0 2;
     }
     
-    #subtitle {
-        margin: 0 2 1 2;
-        color: $text-muted;
-    }
-    
-    #output-label {
-        margin: 2 2 0 2;
+    #output-title {
         text-style: bold;
         color: $text;
+        margin: 1 0;
     }
     
-    #output-panel {
-        height: 20;
+    #output-container {
+        height: 25;
         border: solid $primary;
-        margin: 0 2 1 2;
-        padding: 1;
         background: $panel;
+        padding: 1;
     }
     
-    .success {
+    #output-scroll {
+        height: 100%;
+    }
+    
+    #output-content {
+        height: auto;
+    }
+    
+    .output-ready {
+        color: $text-muted;
+        text-style: italic;
+    }
+    
+    .output-running {
+        color: $warning;
+    }
+    
+    .output-success {
         color: $success;
     }
     
-    .error {
+    .output-error {
         color: $error;
+    }
+    
+    .output-info {
+        color: $accent;
+    }
+    
+    #loading-section {
+        height: auto;
+        align: center middle;
+        padding: 1;
     }
     """
     
     BINDINGS = [
         Binding("q", "quit", "Quit", show=True),
-        Binding("d", "toggle_dark", "Toggle Dark Mode", show=True),
+        Binding("d", "toggle_dark", "Toggle Theme", show=True),
+        Binding("c", "clear_output", "Clear Output", show=True),
     ]
+    
+    def __init__(self):
+        super().__init__()
+        self.config = Config()
+        logger.info("M365 Admin TUI started")
+        logger.info(f"Log file: {log_file}")
+        logger.info(f"Output directory: {self.config.output_dir}")
     
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
         yield Header()
-        yield Container(
-            Label("Microsoft 365 Admin TUI", classes="title"),
-            Label("Select an operation:", id="subtitle"),
-            Vertical(
-                Button("👤 Create User (MgGraph)", id="create_user", variant="primary"),
-                Button("📧 Audit Delegate Access", id="delegate_access", variant="default"),
-                Button("📊 Export Mailbox Report", id="mailbox_export", variant="default"),
-                Button("🔐 MFA Audit (No Input)", id="mfa_audit", variant="default"),
-                Button("🔑 Auth Method Report", id="auth_method", variant="default"),
-            ),
-            Label("Output:", id="output-label"),
-            ScrollableContainer(Static("Ready to process commands...", id="output-panel")),
-        )
+        
+        with VerticalScroll(id="main-container"):
+            with Container(id="header-section"):
+                yield Label("🔷 Microsoft 365 Admin TUI 🔷", classes="app-title")
+                yield Label("Secure PowerShell Script Manager with OAuth2 & MFA Support", classes="app-subtitle")
+                yield Rule(line_style="heavy")
+                yield Label(f"📁 Reports will be saved to: {self.config.output_dir}", classes="info-text")
+            
+            with Container(id="menu-section"):
+                yield Label("⚙️  Available Operations", classes="section-title")
+                with Vertical(classes="menu-buttons"):
+                    yield Button("👤 Create User (Microsoft Graph)", id="create_user", variant="primary")
+                    yield Button("🔍 Audit Delegate Access", id="delegate_access", variant="default")
+                    yield Button("📊 Export Mailbox Report", id="mailbox_export", variant="default")
+                    yield Button("🔐 MFA Audit (All Users)", id="mfa_audit", variant="default")
+                    yield Button("🔑 Authentication Method Report", id="auth_method", variant="default")
+            
+            with Container(id="output-section"):
+                yield Label("📋 Script Output", id="output-title")
+                with Container(id="output-container"):
+                    with VerticalScroll(id="output-scroll"):
+                        yield Static("Ready to execute commands...\nSelect an operation above to begin.", 
+                                   id="output-content", classes="output-ready")
+        
         yield Footer()
+    
+    def on_mount(self) -> None:
+        """Called when app is mounted."""
+        self.title = "M365 Admin TUI"
+        self.sub_title = f"Log: {log_file.name}"
+        logger.info("Application mounted and ready")
     
     def action_toggle_dark(self) -> None:
         """Toggle dark mode."""
         self.dark = not self.dark
+        theme = "dark" if self.dark else "light"
+        logger.info(f"Theme changed to: {theme}")
+        self.notify(f"Theme: {theme.title()}")
+    
+    def action_clear_output(self) -> None:
+        """Clear the output panel."""
+        output = self.query_one("#output-content", Static)
+        output.update("Output cleared.\nReady for next command...")
+        output.set_class(True, "output-ready")
+        logger.info("Output cleared by user")
     
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button press events."""
         button_id = event.button.id
+        logger.info(f"Button pressed: {button_id}")
         
-        # MFA Audit doesn't need input - run directly
+        # MFA Audit and Auth Method don't need input - run directly
         if button_id == "mfa_audit":
-            await self.run_script_no_input("mfa_audit.ps1")
+            await self.run_script_no_input("mfa_audit.ps1", "🔐 MFA Audit")
+            return
+        elif button_id == "auth_method":
+            await self.run_script_no_input("MFA_AuthMethod.ps1", "🔑 Authentication Method Report")
             return
         
         # Other scripts need input - show appropriate screen
@@ -357,7 +508,6 @@ class M365AdminApp(App):
             "create_user": CreateUserScreen(),
             "delegate_access": DelegateAccessScreen(),
             "mailbox_export": MailboxExportScreen(),
-            "auth_method": AuthMethodScreen(),
         }
         
         if button_id in screen_map:
@@ -365,48 +515,71 @@ class M365AdminApp(App):
             if result:
                 await self.run_script_with_params(button_id, result)
     
-    async def run_script_no_input(self, script_name: str) -> None:
+    @work(exclusive=True)
+    async def run_script_no_input(self, script_name: str, display_name: str) -> None:
         """Execute a PowerShell script that doesn't require input."""
-        output_panel = self.query_one("#output-panel", Static)
-        script_path = f"./Scripts/{script_name}"
+        output_panel = self.query_one("#output-content", Static)
+        script_path = self.config.get_script_path(script_name)
         
-        output_panel.update(f"🔄 Running {script_name}...\n")
-        self.notify(f"Running {script_name}...", severity="information")
+        logger.info(f"Starting script: {script_name}")
+        output_panel.update(f"🔄 Running {display_name}...\n\n⏳ Please wait, this may take a moment...\n\n🔐 You will be prompted to sign in with your admin credentials.\nMFA authentication is supported.")
+        output_panel.set_class(True, "output-running")
+        self.notify(f"Starting {display_name}...", severity="information")
         
         try:
+            # Check if pwsh is available
+            pwsh_check = await asyncio.create_subprocess_exec(
+                "which", "pwsh",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            await pwsh_check.communicate()
+            
+            if pwsh_check.returncode != 0:
+                raise Exception("PowerShell (pwsh) not found. Please install PowerShell Core.")
+            
             process = await asyncio.create_subprocess_exec(
                 "pwsh",
                 "-NoProfile",
                 "-File",
-                script_path,
+                str(script_path),
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=os.path.dirname(os.path.abspath(__file__))
+                stderr=asyncio.subprocess.PIPE
             )
             
             stdout, stderr = await process.communicate()
             
             if process.returncode == 0:
-                output_text = f"✅ {script_name} completed successfully!\n\n{stdout.decode()}"
+                output_text = f"✅ {display_name} completed successfully!\n\n{'='*60}\n\n{stdout.decode()}"
                 output_panel.update(output_text)
-                self.notify("Script completed successfully!", severity="success")
+                output_panel.set_class(True, "output-success")
+                self.notify(f"✅ {display_name} completed!", severity="success")
+                logger.info(f"Script completed successfully: {script_name}")
             else:
-                output_text = f"❌ {script_name} failed!\n\nError:\n{stderr.decode()}"
+                error_text = stderr.decode() if stderr else "Unknown error"
+                output_text = f"❌ {display_name} failed!\n\n{'='*60}\n\nError:\n{error_text}\n\n{'='*60}\n\nStdout:\n{stdout.decode()}"
                 output_panel.update(output_text)
-                self.notify("Script failed - check output", severity="error")
+                output_panel.set_class(True, "output-error")
+                self.notify(f"❌ {display_name} failed - check output", severity="error")
+                logger.error(f"Script failed: {script_name} - {error_text}")
                 
         except Exception as e:
-            output_panel.update(f"❌ Error executing script: {str(e)}")
-            self.notify(f"Error: {str(e)}", severity="error")
+            error_msg = str(e)
+            output_panel.update(f"❌ Error executing script: {error_msg}\n\nPlease check:\n• PowerShell Core (pwsh) is installed\n• Required PowerShell modules are installed\n• Network connectivity is working")
+            output_panel.set_class(True, "output-error")
+            self.notify(f"❌ Error: {error_msg}", severity="error")
+            logger.error(f"Exception running script {script_name}: {error_msg}")
     
+    @work(exclusive=True)
     async def run_script_with_params(self, script_type: str, params: dict) -> None:
         """Execute a PowerShell script with parameters."""
-        output_panel = self.query_one("#output-panel", Static)
+        output_panel = self.query_one("#output-content", Static)
         
         # Map script types to files and parameter construction
         script_config = {
             "create_user": {
                 "file": "MgGraphUserCreation.ps1",
+                "display_name": "👤 Create User",
                 "args": [
                     "-DisplayName", params["display_name"],
                     "-UserPrincipalName", params["upn"],
@@ -417,64 +590,88 @@ class M365AdminApp(App):
             },
             "delegate_access": {
                 "file": "Loop for Delegate access.ps1",
+                "display_name": "🔍 Delegate Access Audit",
                 "args": [
-                    "-AdminEmail", params["admin_email"],
                     "-TargetUserEmail", params["target_email"],
                 ]
             },
             "mailbox_export": {
                 "file": "Mailbox export.ps1",
+                "display_name": "📊 Mailbox Export",
                 "args": [
-                    "-AdminEmail", params["admin_email"],
-                    "-OutputPath", params["output_path"],
-                ]
-            },
-            "auth_method": {
-                "file": "MFA_AuthMethod.ps1",
-                "args": [
-                    "-AdminEmail", params["admin_email"],
-                    "-OutputPath", params["output_path"],
+                    "-MailboxType", params["mailbox_type"],
                 ]
             },
         }
         
         if script_type not in script_config:
             self.notify("Unknown script type", severity="error")
+            logger.error(f"Unknown script type: {script_type}")
             return
         
         config = script_config[script_type]
-        script_path = f"./Scripts/{config['file']}"
+        script_path = self.config.get_script_path(config["file"])
+        display_name = config["display_name"]
         
-        output_panel.update(f"🔄 Running {config['file']}...\n\nNote: Scripts need to be modified to accept parameters (see TEXTUAL_SETUP_GUIDE.md)")
-        self.notify(f"Running {config['file']}...", severity="information")
+        logger.info(f"Starting script: {config['file']} with params: {params}")
+        output_panel.update(f"🔄 Running {display_name}...\n\n⏳ Please wait, this may take a moment...\n\n🔐 You will be prompted to sign in with your admin credentials.\nMFA authentication is supported.")
+        output_panel.set_class(True, "output-running")
+        self.notify(f"Starting {display_name}...", severity="information")
         
         try:
+            # Check if pwsh is available
+            pwsh_check = await asyncio.create_subprocess_exec(
+                "which", "pwsh",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            await pwsh_check.communicate()
+            
+            if pwsh_check.returncode != 0:
+                raise Exception("PowerShell (pwsh) not found. Please install PowerShell Core.")
+            
             # Build command
-            cmd = ["pwsh", "-NoProfile", "-File", script_path] + config["args"]
+            cmd = ["pwsh", "-NoProfile", "-File", str(script_path)] + config["args"]
             
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=os.path.dirname(os.path.abspath(__file__))
+                stderr=asyncio.subprocess.PIPE
             )
             
             stdout, stderr = await process.communicate()
             
             if process.returncode == 0:
-                output_text = f"✅ {config['file']} completed successfully!\n\n{stdout.decode()}"
+                output_text = f"✅ {display_name} completed successfully!\n\n{'='*60}\n\n{stdout.decode()}"
                 output_panel.update(output_text)
-                self.notify("Script completed successfully!", severity="success")
+                output_panel.set_class(True, "output-success")
+                self.notify(f"✅ {display_name} completed!", severity="success")
+                logger.info(f"Script completed successfully: {config['file']}")
             else:
-                output_text = f"❌ {config['file']} failed!\n\nError:\n{stderr.decode()}"
+                error_text = stderr.decode() if stderr else "Unknown error"
+                output_text = f"❌ {display_name} failed!\n\n{'='*60}\n\nError:\n{error_text}\n\n{'='*60}\n\nStdout:\n{stdout.decode()}"
                 output_panel.update(output_text)
-                self.notify("Script failed - check output", severity="error")
+                output_panel.set_class(True, "output-error")
+                self.notify(f"❌ {display_name} failed - check output", severity="error")
+                logger.error(f"Script failed: {config['file']} - {error_text}")
                 
         except Exception as e:
-            output_panel.update(f"❌ Error executing script: {str(e)}")
-            self.notify(f"Error: {str(e)}", severity="error")
+            error_msg = str(e)
+            output_panel.update(f"❌ Error executing script: {error_msg}\n\nPlease check:\n• PowerShell Core (pwsh) is installed\n• Required PowerShell modules are installed\n• Network connectivity is working")
+            output_panel.set_class(True, "output-error")
+            self.notify(f"❌ Error: {error_msg}", severity="error")
+            logger.error(f"Exception running script {config['file']}: {error_msg}")
+
+
+def main():
+    """Main entry point."""
+    app = M365AdminApp()
+    try:
+        app.run()
+    except Exception as e:
+        logger.error(f"Application error: {e}")
+        raise
 
 
 if __name__ == "__main__":
-    app = M365AdminApp()
-    app.run()
+    main()
