@@ -32,58 +32,13 @@ logger = get_logger(__name__)
 class CreateUserScreen(ModalScreen):
     """Screen for creating a new user."""
     
-    CSS = """
-    CreateUserScreen {
-        align: center middle;
-    }
-    
-    #dialog {
-        width: 70;
-        height: auto;
-        border: thick $primary;
-        background: $surface;
-        padding: 2;
-    }
-    
-    .dialog-title {
-        text-align: center;
-        text-style: bold;
-        color: $accent;
-        margin-bottom: 1;
-    }
-    
-    .field-label {
-        color: $text;
-        margin: 1 0 0 0;
-    }
-    
-    .field-hint {
-        color: $text-muted;
-        text-style: italic;
-        margin: 0 0 0 1;
-    }
-    
-    Input {
-        margin: 0 0 1 0;
-    }
-    
-    .button-row {
-        margin-top: 1;
-        height: auto;
-        align: center middle;
-    }
-    
-    Button {
-        margin: 0 1;
-    }
-    """
-    
     BINDINGS = [("escape", "app.pop_screen", "Cancel")]
     
     def compose(self) -> ComposeResult:
         yield Container(
             Label("➕ Create New Microsoft 365 User", classes="dialog-title"),
             Rule(line_style="heavy"),
+            
             Label("Display Name:", classes="field-label"),
             Label("Full name of the user (e.g., John Doe)", classes="field-hint"),
             Input(placeholder="John Doe", id="display_name"),
@@ -100,12 +55,14 @@ class CreateUserScreen(ModalScreen):
             Label("Minimum 8 characters with upper, lower, and numbers", classes="field-hint"),
             Input(placeholder="Temp@Pass123", password=True, id="password"),
             
-            Label("License Index (0 to skip licensing):", classes="field-label"),
-            Label("Set to 0 to create without license, or run with -ListLicenses first", classes="field-hint"),
+            Label("License Selection:", classes="field-label"),
+            Label("Enter license index (1, 2, 3...) or 0 to skip licensing", classes="field-hint"),
+            Label("💡 Tip: Run 'List Licenses' first to see available licenses and their index numbers", classes="field-hint"),
             Input(placeholder="0", id="license_index", value="0"),
             
             Horizontal(
                 Button("Create User", variant="success", id="submit"),
+                Button("List Licenses First", variant="default", id="list_licenses"),
                 Button("Cancel", variant="default", id="cancel"),
                 classes="button-row"
             ),
@@ -115,9 +72,14 @@ class CreateUserScreen(ModalScreen):
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "cancel":
             self.app.pop_screen()
+        elif event.button.id == "list_licenses":
+            # Run the script in list-only mode
+            self.app.notify("📋 Listing available licenses...", severity="information")
+            self.dismiss({"action": "list_licenses"})
         elif event.button.id == "submit":
             # Collect form data
             data = {
+                "action": "create_user",
                 "display_name": self.query_one("#display_name", Input).value.strip(),
                 "upn": self.query_one("#upn", Input).value.strip(),
                 "location": self.query_one("#location", Input).value.strip().upper(),
@@ -144,52 +106,6 @@ class CreateUserScreen(ModalScreen):
 
 class DelegateAccessScreen(ModalScreen):
     """Screen for delegate access audit."""
-    
-    CSS = """
-    DelegateAccessScreen {
-        align: center middle;
-    }
-    
-    #dialog {
-        width: 70;
-        height: auto;
-        border: thick $primary;
-        background: $surface;
-        padding: 2;
-    }
-    
-    .dialog-title {
-        text-align: center;
-        text-style: bold;
-        color: $accent;
-        margin-bottom: 1;
-    }
-    
-    .field-label {
-        color: $text;
-        margin: 1 0 0 0;
-    }
-    
-    .field-hint {
-        color: $text-muted;
-        text-style: italic;
-        margin: 0 0 0 1;
-    }
-    
-    Input {
-        margin: 0 0 1 0;
-    }
-    
-    .button-row {
-        margin-top: 1;
-        height: auto;
-        align: center middle;
-    }
-    
-    Button {
-        margin: 0 1;
-    }
-    """
     
     BINDINGS = [("escape", "app.pop_screen", "Cancel")]
     
@@ -227,52 +143,6 @@ class DelegateAccessScreen(ModalScreen):
 
 class MailboxExportScreen(ModalScreen):
     """Screen for mailbox export."""
-    
-    CSS = """
-    MailboxExportScreen {
-        align: center middle;
-    }
-    
-    #dialog {
-        width: 70;
-        height: auto;
-        border: thick $primary;
-        background: $surface;
-        padding: 2;
-    }
-    
-    .dialog-title {
-        text-align: center;
-        text-style: bold;
-        color: $accent;
-        margin-bottom: 1;
-    }
-    
-    .field-label {
-        color: $text;
-        margin: 1 0 0 0;
-    }
-    
-    .field-hint {
-        color: $text-muted;
-        text-style: italic;
-        margin: 0 0 0 1;
-    }
-    
-    Input {
-        margin: 0 0 1 0;
-    }
-    
-    .button-row {
-        margin-top: 1;
-        height: auto;
-        align: center middle;
-    }
-    
-    Button {
-        margin: 0 1;
-    }
-    """
     
     BINDINGS = [("escape", "app.pop_screen", "Cancel")]
     
@@ -316,127 +186,26 @@ class MailboxExportScreen(ModalScreen):
 class M365AdminApp(App):
     """A professional Textual app for Microsoft 365 administration."""
     
-    CSS = """
-    Screen {
-        background: $surface;
-    }
-    
-    #main-container {
-        height: 100%;
-        overflow-y: auto;
-    }
-    
-    #header-section {
-        height: auto;
-        background: $boost;
-        padding: 1 2;
-        margin-bottom: 1;
-    }
-    
-    .app-title {
-        text-align: center;
-        text-style: bold;
-        color: $accent;
-        margin-bottom: 1;
-    }
-    
-    .app-subtitle {
-        text-align: center;
-        color: $text-muted;
-        margin-bottom: 1;
-    }
-    
-    .info-text {
-        text-align: center;
-        color: $success;
-        text-style: italic;
-    }
-    
-    #menu-section {
-        height: auto;
-        padding: 0 2;
-        margin-bottom: 1;
-    }
-    
-    .section-title {
-        text-style: bold;
-        color: $text;
-        margin: 1 0;
-    }
-    
-    .menu-buttons {
-        height: auto;
-    }
-    
-    Button {
-        width: 100%;
-        margin: 0 0 1 0;
-        min-height: 3;
-    }
-    
-    #output-section {
-        height: auto;
-        padding: 0 2;
-    }
-    
-    #output-title {
-        text-style: bold;
-        color: $text;
-        margin: 1 0;
-    }
-    
-    #output-container {
-        height: 25;
-        border: solid $primary;
-        background: $panel;
-        padding: 1;
-    }
-    
-    #output-scroll {
-        height: 100%;
-    }
-    
-    #output-content {
-        height: auto;
-    }
-    
-    .output-ready {
-        color: $text-muted;
-        text-style: italic;
-    }
-    
-    .output-running {
-        color: $warning;
-    }
-    
-    .output-success {
-        color: $success;
-    }
-    
-    .output-error {
-        color: $error;
-    }
-    
-    .output-info {
-        color: $accent;
-    }
-    
-    #loading-section {
-        height: auto;
-        align: center middle;
-        padding: 1;
-    }
-    """
+    # Load external stylesheets
+    CSS_PATH = [
+        Path(__file__).parent / "themes" / "app.tcss",
+        Path(__file__).parent / "themes" / "dialogs.tcss",
+    ]
     
     BINDINGS = [
         Binding("q", "quit", "Quit", show=True),
         Binding("d", "toggle_dark", "Toggle Theme", show=True),
         Binding("c", "clear_output", "Clear Output", show=True),
+        Binding("s", "toggle_switches", "Switches", show=True),
+        Binding("l", "list_licenses", "List Licenses", show=False),
+        Binding("up", "focus_previous", "Up", show=False),
+        Binding("down", "focus_next", "Down", show=False),
     ]
     
     def __init__(self):
         super().__init__()
         self.config = Config()
+        self.switches_visible = False
         logger.info("M365 Admin TUI started")
         logger.info(f"Log file: {log_file}")
         logger.info(f"Output directory: {self.config.output_dir}")
@@ -445,7 +214,7 @@ class M365AdminApp(App):
         """Create child widgets for the app."""
         yield Header()
         
-        with VerticalScroll(id="main-container"):
+        with Vertical(id="main-container"):
             with Container(id="header-section"):
                 yield Label("🔷 Microsoft 365 Admin TUI 🔷", classes="app-title")
                 yield Label("Secure PowerShell Script Manager with OAuth2 & MFA Support", classes="app-subtitle")
@@ -461,6 +230,13 @@ class M365AdminApp(App):
                     yield Button("🔐 MFA Audit (All Users)", id="mfa_audit", variant="default")
                     yield Button("🔑 Authentication Method Report", id="auth_method", variant="default")
             
+            with Container(id="switches-section", classes="hidden"):
+                yield Label("🔧 Utility Switches", classes="section-title")
+                yield Label("Press the key shown to execute the command", classes="switches-hint")
+                with Vertical(classes="switches-menu"):
+                    yield Label("[L] List Available Licenses", id="switch-list-licenses", classes="switch-item")
+                    yield Label("[S] Close Switches Menu", id="switch-close", classes="switch-item-muted")
+            
             with Container(id="output-section"):
                 yield Label("📋 Script Output", id="output-title")
                 with Container(id="output-container"):
@@ -474,36 +250,132 @@ class M365AdminApp(App):
         """Called when app is mounted."""
         self.title = "M365 Admin TUI"
         self.sub_title = f"Log: {log_file.name}"
+        self.theme = "textual-dark"  # Start with dark theme
         logger.info("Application mounted and ready")
     
     def action_toggle_dark(self) -> None:
         """Toggle dark mode."""
-        self.dark = not self.dark
-        theme = "dark" if self.dark else "light"
-        logger.info(f"Theme changed to: {theme}")
-        self.notify(f"Theme: {theme.title()}")
+        # Toggle between dark and light themes
+        if self.theme == "textual-dark":
+            self.theme = "textual-light"
+            logger.info("Theme changed to: light")
+            self.notify("Theme: Light")
+        else:
+            self.theme = "textual-dark"
+            logger.info("Theme changed to: dark")
+            self.notify("Theme: Dark")
+    
+    def action_toggle_switches(self) -> None:
+        """Toggle the switches menu visibility."""
+        switches_section = self.query_one("#switches-section", Container)
+        self.switches_visible = not self.switches_visible
+        
+        if self.switches_visible:
+            switches_section.remove_class("hidden")
+            self.notify("Switches menu opened - Press 'L' for licenses, 'S' to close", severity="information")
+            logger.info("Switches menu opened")
+        else:
+            switches_section.add_class("hidden")
+            self.notify("Switches menu closed")
+            logger.info("Switches menu closed")
+    
+    def action_list_licenses(self) -> None:
+        """Run the list licenses command."""
+        # Only run if switches menu is visible
+        if not self.switches_visible:
+            return
+        
+        logger.info("List licenses command triggered from switches")
+        self.notify("📋 Listing available licenses...", severity="information")
+        self.run_list_licenses_script()
+    
+    @work(exclusive=True)
+    async def run_list_licenses_script(self) -> None:
+        """Execute the PowerShell script to list licenses."""
+        output_panel = self.query_one("#output-content", Static)
+        script_path = self.config.get_script_path("MgGraphUserCreation.ps1")
+        display_name = "📋 List Available Licenses"
+        
+        logger.info("Starting license listing script")
+        output_panel.update(f"🔄 Running {display_name}...\n\n⏳ Please wait, this may take a moment...\n\n🔐 You will be prompted to sign in with your admin credentials.\nMFA authentication is supported.")
+        output_panel.remove_class("output-ready", "output-success", "output-error", "output-info")
+        output_panel.set_class(True, "output-running")
+        
+        try:
+            # Check if pwsh is available
+            pwsh_check = await asyncio.create_subprocess_exec(
+                "which", "pwsh",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            await pwsh_check.communicate()
+            
+            if pwsh_check.returncode != 0:
+                raise Exception("PowerShell (pwsh) not found. Please install PowerShell Core.")
+            
+            # Run with -ListLicenses flag
+            process = await asyncio.create_subprocess_exec(
+                "pwsh",
+                "-NoProfile",
+                "-File",
+                str(script_path),
+                "-ListLicenses",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            stdout, stderr = await process.communicate()
+            
+            if process.returncode == 0:
+                output_text = f"✅ {display_name} completed successfully!\n\n{'='*60}\n\n{stdout.decode()}"
+                output_panel.update(output_text)
+                output_panel.remove_class("output-ready", "output-running", "output-error", "output-info")
+                output_panel.set_class(True, "output-success")
+                self.notify(f"✅ Licenses listed!", severity="success")
+                logger.info("License listing completed successfully")
+            else:
+                error_text = stderr.decode() if stderr else "Unknown error"
+                output_text = f"❌ {display_name} failed!\n\n{'='*60}\n\nError:\n{error_text}\n\n{'='*60}\n\nStdout:\n{stdout.decode()}"
+                output_panel.update(output_text)
+                output_panel.remove_class("output-ready", "output-running", "output-success", "output-info")
+                output_panel.set_class(True, "output-error")
+                self.notify(f"❌ Failed - check output", severity="error")
+                logger.error(f"License listing failed: {error_text}")
+                
+        except Exception as e:
+            error_msg = str(e)
+            output_panel.update(f"❌ Error executing script: {error_msg}\n\nPlease check:\n• PowerShell Core (pwsh) is installed\n• Required PowerShell modules are installed\n• Network connectivity is working")
+            output_panel.remove_class("output-ready", "output-running", "output-success", "output-info")
+            output_panel.set_class(True, "output-error")
+            self.notify(f"❌ Error: {error_msg}", severity="error")
+            logger.error(f"Exception running license list: {error_msg}")
     
     def action_clear_output(self) -> None:
         """Clear the output panel."""
         output = self.query_one("#output-content", Static)
         output.update("Output cleared.\nReady for next command...")
+        # Clear all status classes first
+        output.remove_class("output-running", "output-success", "output-error", "output-info")
         output.set_class(True, "output-ready")
         logger.info("Output cleared by user")
     
-    async def on_button_pressed(self, event: Button.Pressed) -> None:
+    def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button press events."""
         button_id = event.button.id
         logger.info(f"Button pressed: {button_id}")
         
         # MFA Audit and Auth Method don't need input - run directly
         if button_id == "mfa_audit":
-            await self.run_script_no_input("mfa_audit.ps1", "🔐 MFA Audit")
-            return
+            self.run_script_no_input("mfa_audit.ps1", "🔐 MFA Audit")
         elif button_id == "auth_method":
-            await self.run_script_no_input("MFA_AuthMethod.ps1", "🔑 Authentication Method Report")
-            return
-        
-        # Other scripts need input - show appropriate screen
+            self.run_script_no_input("MFA_AuthMethod.ps1", "🔑 Authentication Method Report")
+        elif button_id in ["create_user", "delegate_access", "mailbox_export"]:
+            # Scripts that need input - show appropriate screen
+            self.show_input_screen(button_id)
+    
+    @work(exclusive=True)
+    async def show_input_screen(self, button_id: str) -> None:
+        """Show input screen and run script with parameters."""
         screen_map = {
             "create_user": CreateUserScreen(),
             "delegate_access": DelegateAccessScreen(),
@@ -523,6 +395,7 @@ class M365AdminApp(App):
         
         logger.info(f"Starting script: {script_name}")
         output_panel.update(f"🔄 Running {display_name}...\n\n⏳ Please wait, this may take a moment...\n\n🔐 You will be prompted to sign in with your admin credentials.\nMFA authentication is supported.")
+        output_panel.remove_class("output-ready", "output-success", "output-error", "output-info")
         output_panel.set_class(True, "output-running")
         self.notify(f"Starting {display_name}...", severity="information")
         
@@ -552,6 +425,7 @@ class M365AdminApp(App):
             if process.returncode == 0:
                 output_text = f"✅ {display_name} completed successfully!\n\n{'='*60}\n\n{stdout.decode()}"
                 output_panel.update(output_text)
+                output_panel.remove_class("output-ready", "output-running", "output-error", "output-info")
                 output_panel.set_class(True, "output-success")
                 self.notify(f"✅ {display_name} completed!", severity="success")
                 logger.info(f"Script completed successfully: {script_name}")
@@ -559,6 +433,7 @@ class M365AdminApp(App):
                 error_text = stderr.decode() if stderr else "Unknown error"
                 output_text = f"❌ {display_name} failed!\n\n{'='*60}\n\nError:\n{error_text}\n\n{'='*60}\n\nStdout:\n{stdout.decode()}"
                 output_panel.update(output_text)
+                output_panel.remove_class("output-ready", "output-running", "output-success", "output-info")
                 output_panel.set_class(True, "output-error")
                 self.notify(f"❌ {display_name} failed - check output", severity="error")
                 logger.error(f"Script failed: {script_name} - {error_text}")
@@ -566,6 +441,7 @@ class M365AdminApp(App):
         except Exception as e:
             error_msg = str(e)
             output_panel.update(f"❌ Error executing script: {error_msg}\n\nPlease check:\n• PowerShell Core (pwsh) is installed\n• Required PowerShell modules are installed\n• Network connectivity is working")
+            output_panel.remove_class("output-ready", "output-running", "output-success", "output-info")
             output_panel.set_class(True, "output-error")
             self.notify(f"❌ Error: {error_msg}", severity="error")
             logger.error(f"Exception running script {script_name}: {error_msg}")
@@ -574,6 +450,65 @@ class M365AdminApp(App):
     async def run_script_with_params(self, script_type: str, params: dict) -> None:
         """Execute a PowerShell script with parameters."""
         output_panel = self.query_one("#output-content", Static)
+        
+        # Handle special case: List licenses only
+        if script_type == "create_user" and params.get("action") == "list_licenses":
+            script_path = self.config.get_script_path("MgGraphUserCreation.ps1")
+            display_name = "📋 List Available Licenses"
+            
+            logger.info("Listing available licenses")
+            output_panel.update(f"🔄 Running {display_name}...\n\n⏳ Please wait, this may take a moment...\n\n🔐 You will be prompted to sign in with your admin credentials.\nMFA authentication is supported.")
+            output_panel.remove_class("output-ready", "output-success", "output-error", "output-info")
+            output_panel.set_class(True, "output-running")
+            self.notify(f"Starting {display_name}...", severity="information")
+            
+            try:
+                pwsh_check = await asyncio.create_subprocess_exec(
+                    "which", "pwsh",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                await pwsh_check.communicate()
+                
+                if pwsh_check.returncode != 0:
+                    raise Exception("PowerShell (pwsh) not found. Please install PowerShell Core.")
+                
+                # Run with -ListLicenses flag
+                cmd = ["pwsh", "-NoProfile", "-File", str(script_path), "-ListLicenses"]
+                
+                process = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                
+                stdout, stderr = await process.communicate()
+                
+                if process.returncode == 0:
+                    output_text = f"✅ {display_name} completed successfully!\n\n{'='*60}\n\n{stdout.decode()}"
+                    output_panel.update(output_text)
+                    output_panel.remove_class("output-ready", "output-running", "output-error", "output-info")
+                    output_panel.set_class(True, "output-success")
+                    self.notify(f"✅ {display_name} completed!", severity="success")
+                    logger.info("License listing completed successfully")
+                else:
+                    error_text = stderr.decode() if stderr else "Unknown error"
+                    output_text = f"❌ {display_name} failed!\n\n{'='*60}\n\nError:\n{error_text}\n\n{'='*60}\n\nStdout:\n{stdout.decode()}"
+                    output_panel.update(output_text)
+                    output_panel.remove_class("output-ready", "output-running", "output-success", "output-info")
+                    output_panel.set_class(True, "output-error")
+                    self.notify(f"❌ {display_name} failed - check output", severity="error")
+                    logger.error(f"License listing failed: {error_text}")
+                    
+            except Exception as e:
+                error_msg = str(e)
+                output_panel.update(f"❌ Error executing script: {error_msg}\n\nPlease check:\n• PowerShell Core (pwsh) is installed\n• Required PowerShell modules are installed\n• Network connectivity is working")
+                output_panel.remove_class("output-ready", "output-running", "output-success", "output-info")
+                output_panel.set_class(True, "output-error")
+                self.notify(f"❌ Error: {error_msg}", severity="error")
+                logger.error(f"Exception running license list: {error_msg}")
+            
+            return
         
         # Map script types to files and parameter construction
         script_config = {
@@ -615,6 +550,7 @@ class M365AdminApp(App):
         
         logger.info(f"Starting script: {config['file']} with params: {params}")
         output_panel.update(f"🔄 Running {display_name}...\n\n⏳ Please wait, this may take a moment...\n\n🔐 You will be prompted to sign in with your admin credentials.\nMFA authentication is supported.")
+        output_panel.remove_class("output-ready", "output-success", "output-error", "output-info")
         output_panel.set_class(True, "output-running")
         self.notify(f"Starting {display_name}...", severity="information")
         
@@ -644,6 +580,7 @@ class M365AdminApp(App):
             if process.returncode == 0:
                 output_text = f"✅ {display_name} completed successfully!\n\n{'='*60}\n\n{stdout.decode()}"
                 output_panel.update(output_text)
+                output_panel.remove_class("output-ready", "output-running", "output-error", "output-info")
                 output_panel.set_class(True, "output-success")
                 self.notify(f"✅ {display_name} completed!", severity="success")
                 logger.info(f"Script completed successfully: {config['file']}")
@@ -651,6 +588,7 @@ class M365AdminApp(App):
                 error_text = stderr.decode() if stderr else "Unknown error"
                 output_text = f"❌ {display_name} failed!\n\n{'='*60}\n\nError:\n{error_text}\n\n{'='*60}\n\nStdout:\n{stdout.decode()}"
                 output_panel.update(output_text)
+                output_panel.remove_class("output-ready", "output-running", "output-success", "output-info")
                 output_panel.set_class(True, "output-error")
                 self.notify(f"❌ {display_name} failed - check output", severity="error")
                 logger.error(f"Script failed: {config['file']} - {error_text}")
@@ -658,6 +596,7 @@ class M365AdminApp(App):
         except Exception as e:
             error_msg = str(e)
             output_panel.update(f"❌ Error executing script: {error_msg}\n\nPlease check:\n• PowerShell Core (pwsh) is installed\n• Required PowerShell modules are installed\n• Network connectivity is working")
+            output_panel.remove_class("output-ready", "output-running", "output-success", "output-info")
             output_panel.set_class(True, "output-error")
             self.notify(f"❌ Error: {error_msg}", severity="error")
             logger.error(f"Exception running script {config['file']}: {error_msg}")
