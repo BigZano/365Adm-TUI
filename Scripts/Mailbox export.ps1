@@ -1,3 +1,5 @@
+# Export detailed mailbox information to CSV with filtering by mailbox type
+
 param(
     [Parameter(Mandatory=$false)]
     [ValidateSet("All", "UserMailbox", "SharedMailbox", "RoomMailbox", "EquipmentMailbox")]

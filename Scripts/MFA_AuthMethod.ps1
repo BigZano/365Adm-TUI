@@ -1,3 +1,5 @@
+# Generate comprehensive report of user authentication methods and MFA status
+
 param(
     [Parameter(Mandatory=$false)]
     [string]$OutputDirectory = ""

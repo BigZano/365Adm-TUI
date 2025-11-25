@@ -18,6 +18,7 @@ bundled/
 # Output reports
 Documents/
 M365Reports/
+internal/
 
 # Temporary and build files
 *.zip
@@ -30,3 +31,5 @@ M365Reports/
 Thumbs.db
 SCRIPT_MODIFICATION_GUIDE_CORRECTED.md
 main.py.backup
+
+

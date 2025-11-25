@@ -184,6 +184,21 @@ Contributions are welcome! Please:
 4. Test thoroughly
 5. Submit a pull request
 
+### Adding Scripts
+
+New PowerShell scripts placed in the `Scripts/` directory are automatically discovered. Script names are displayed in PascalCase format derived from the filename.
+
+**Script Descriptions:**
+- Automatically extracted from the first comment line in each script
+- To override, edit `SCRIPT_DESCRIPTIONS` in `lib/script_registry.py`:
+```python
+SCRIPT_DESCRIPTIONS = {
+    "YourScriptName": "Your custom description here",
+}
+```
+
+**Tip:** Add a descriptive comment at the top of your script for automatic description extraction.
+
 ## License
 
 This project is provided as-is for administrative use.

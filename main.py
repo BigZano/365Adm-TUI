@@ -1,17 +1,16 @@
 """
-Microsoft 365 Admin TUI
-A Textual-based Terminal User Interface for managing Microsoft 365 via PowerShell scripts.
+Microsoft 365 Admin TUI - Terminal Style Interface
+A classic TUI for managing Microsoft 365 via PowerShell scripts with OAuth2 & MFA
 """
 
 from textual.app import App, ComposeResult
-from textual.containers import Container, Horizontal, Vertical, ScrollableContainer, VerticalScroll
-from textual.widgets import Header, Footer, Button, Static, Label, Input, LoadingIndicator, Rule
-from textual.screen import Screen, ModalScreen
+from textual.containers import Container, Horizontal, Vertical, ScrollableContainer
+from textual.widgets import Static, Label, Input, ListView, ListItem, Footer, Button
+from textual.screen import ModalScreen
 from textual.binding import Binding
-from textual import work
+from textual import work, on
 from pathlib import Path
 import asyncio
-import os
 import sys
 
 # Add lib directory to path
@@ -19,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent / "lib"))
 
 from lib.logger import get_logger, setup_logging
 from lib.config import Config
+from lib.script_registry import ScriptRegistry, ScriptInfo
 
 # Setup logging
 config = Config()
@@ -26,585 +26,758 @@ log_file = setup_logging(config.logs_dir)
 logger = get_logger(__name__)
 
 # ============================================================================
-# INPUT SCREENS FOR EACH SCRIPT
+# PARAMETER INPUT MODAL
 # ============================================================================
 
-class CreateUserScreen(ModalScreen):
-    """Screen for creating a new user."""
+class ParameterInputModal(ModalScreen):
+    """Enhanced modal for parameter input with validation"""
     
-    BINDINGS = [("escape", "app.pop_screen", "Cancel")]
+    CSS = """
+    ParameterInputModal {
+        align: center middle;
+        background: $background 85%;
+    }
     
-    def compose(self) -> ComposeResult:
-        yield Container(
-            Label("➕ Create New Microsoft 365 User", classes="dialog-title"),
-            Rule(line_style="heavy"),
-            
-            Label("Display Name:", classes="field-label"),
-            Label("Full name of the user (e.g., John Doe)", classes="field-hint"),
-            Input(placeholder="John Doe", id="display_name"),
-            
-            Label("User Principal Name:", classes="field-label"),
-            Label("Email address / login (e.g., john.doe@company.com)", classes="field-hint"),
-            Input(placeholder="john.doe@company.com", id="upn"),
-            
-            Label("Usage Location:", classes="field-label"),
-            Label("2-letter country code (e.g., US, GB, CA)", classes="field-hint"),
-            Input(placeholder="US", id="location", max_length=2),
-            
-            Label("Password:", classes="field-label"),
-            Label("Minimum 8 characters with upper, lower, and numbers", classes="field-hint"),
-            Input(placeholder="Temp@Pass123", password=True, id="password"),
-            
-            Label("License Selection:", classes="field-label"),
-            Label("Enter license index (1, 2, 3...) or 0 to skip licensing", classes="field-hint"),
-            Label("💡 Tip: Run 'List Licenses' first to see available licenses and their index numbers", classes="field-hint"),
-            Input(placeholder="0", id="license_index", value="0"),
-            
-            Horizontal(
-                Button("Create User", variant="success", id="submit"),
-                Button("List Licenses First", variant="default", id="list_licenses"),
-                Button("Cancel", variant="default", id="cancel"),
-                classes="button-row"
-            ),
-            id="dialog"
-        )
+    #param-dialog {
+        width: auto;
+        min-width: 60;
+        max-width: 90%;
+        height: auto;
+        max-height: 90%;
+        border: thick #ff6b35;
+        background: #0f1a14;
+        padding: 1 2;
+    }
     
-    async def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "cancel":
-            self.app.pop_screen()
-        elif event.button.id == "list_licenses":
-            # Run the script in list-only mode
-            self.app.notify("📋 Listing available licenses...", severity="information")
-            self.dismiss({"action": "list_licenses"})
-        elif event.button.id == "submit":
-            # Collect form data
-            data = {
-                "action": "create_user",
-                "display_name": self.query_one("#display_name", Input).value.strip(),
-                "upn": self.query_one("#upn", Input).value.strip(),
-                "location": self.query_one("#location", Input).value.strip().upper(),
-                "password": self.query_one("#password", Input).value,
-                "license_index": self.query_one("#license_index", Input).value.strip(),
-            }
-            
-            # Validate inputs
-            if not all([data["display_name"], data["upn"], data["location"], data["password"]]):
-                self.app.notify("⚠️ Please fill in all required fields", severity="error")
-                return
-            
-            if len(data["location"]) != 2:
-                self.app.notify("⚠️ Location must be 2-letter country code", severity="error")
-                return
-            
-            if len(data["password"]) < 8:
-                self.app.notify("⚠️ Password must be at least 8 characters", severity="error")
-                return
-            
-            logger.info(f"Creating user: {data['upn']}")
-            self.dismiss(data)
-
-
-class DelegateAccessScreen(ModalScreen):
-    """Screen for delegate access audit."""
+    #param-title {
+        color: #ffb627;
+        text-style: bold;
+        text-align: center;
+        padding: 1;
+        border-bottom: solid #ff6b35;
+        margin-bottom: 1;
+    }
     
-    BINDINGS = [("escape", "app.pop_screen", "Cancel")]
+    .param-input-group {
+        margin: 1 0;
+        height: auto;
+    }
+    
+    .param-label {
+        color: #2d8659;
+        text-style: bold;
+        margin-bottom: 0;
+    }
+    
+    .param-hint {
+        color: #7a8a7f;
+        text-style: italic;
+        margin-bottom: 0;
+    }
+    
+    .param-required {
+        color: #d93a2b;
+        text-style: bold;
+    }
+    
+    ParameterInputModal Input {
+        width: 100%;
+        margin-bottom: 1;
+    }
+    
+    #param-buttons {
+        margin-top: 2;
+        height: auto;
+        align: center middle;
+    }
+    """
+    
+    def __init__(self, script_name: str, parameters: list, existing_values: dict = None):
+        super().__init__()
+        self.script_name = script_name
+        self.parameters = parameters
+        self.existing_values = existing_values or {}
+        self.input_widgets = {}
     
     def compose(self) -> ComposeResult:
-        yield Container(
-            Label("🔍 Audit Delegate Access Permissions", classes="dialog-title"),
-            Rule(line_style="heavy"),
-            Label("Target User Email:", classes="field-label"),
-            Label("Email of user to check permissions for", classes="field-hint"),
-            Input(placeholder="user@company.com", id="target_email"),
+        with Container(id="param-dialog"):
+            yield Static(f"Parameters: {self.script_name}", id="param-title")
             
-            Horizontal(
-                Button("Run Audit", variant="success", id="submit"),
-                Button("Cancel", variant="default", id="cancel"),
-                classes="button-row"
-            ),
-            id="dialog"
-        )
+            with ScrollableContainer():
+                for param in self.parameters:
+                    with Container(classes="param-input-group"):
+                        label_text = param.prompt or param.name
+                        if param.required:
+                            label_text += " *"
+                        yield Static(label_text, classes="param-label")
+                        
+                        if param.default:
+                            yield Static(f"Default: {param.default}", classes="param-hint")
+                        
+                        input_widget = Input(
+                            placeholder=param.default or "Enter value...",
+                            password=param.password,
+                            id=f"input-{param.name}"
+                        )
+                        
+                        # Set existing value if available
+                        if param.name in self.existing_values:
+                            input_widget.value = self.existing_values[param.name]
+                        elif param.default:
+                            input_widget.value = param.default
+                        
+                        self.input_widgets[param.name] = input_widget
+                        yield input_widget
+            
+            if any(p.required for p in self.parameters):
+                yield Static("* Required fields", classes="param-required")
+            
+            with Container(id="param-buttons"):
+                yield Button("Execute", variant="primary", id="execute-btn")
+                yield Button("Cancel", variant="default", id="cancel-btn")
     
-    async def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "cancel":
-            self.app.pop_screen()
-        elif event.button.id == "submit":
-            data = {
-                "target_email": self.query_one("#target_email", Input).value.strip(),
-            }
+    def on_mount(self) -> None:
+        """Focus first input when modal opens"""
+        if self.input_widgets:
+            first_input = list(self.input_widgets.values())[0]
+            first_input.focus()
+    
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "execute-btn":
+            # Collect and validate all inputs
+            values = {}
+            missing_required = []
             
-            if not data["target_email"]:
-                self.app.notify("⚠️ Please enter target user email", severity="error")
+            for param in self.parameters:
+                input_widget = self.input_widgets[param.name]
+                value = input_widget.value.strip()
+                
+                if not value and param.default:
+                    value = param.default
+                
+                if not value and param.required:
+                    missing_required.append(param.prompt or param.name)
+                
+                if value:
+                    values[param.name] = value
+            
+            if missing_required:
+                self.app.notify(
+                    f"Missing required: {', '.join(missing_required)}",
+                    severity="error",
+                    timeout=5
+                )
                 return
             
-            logger.info(f"Running delegate access audit for: {data['target_email']}")
-            self.dismiss(data)
+            self.dismiss({"action": "execute", "values": values})
+        else:
+            self.dismiss({"action": "cancel"})
 
 
-class MailboxExportScreen(ModalScreen):
-    """Screen for mailbox export."""
+# ============================================================================
+# CONFIRMATION MODAL
+# ============================================================================
+class ConfirmationModal(ModalScreen):
+    """Confirmation dialog to review parameters before execution"""
     
-    BINDINGS = [("escape", "app.pop_screen", "Cancel")]
+    def __init__(self, script_name: str, parameters: dict):
+        super().__init__()
+        self.script_name = script_name
+        self.parameters = parameters
+        self.result = None
     
     def compose(self) -> ComposeResult:
-        yield Container(
-            Label("📊 Export Mailbox Report", classes="dialog-title"),
-            Rule(line_style="heavy"),
-            Label("Mailbox Type:", classes="field-label"),
-            Label("Options: All, UserMailbox, SharedMailbox, RoomMailbox, EquipmentMailbox", classes="field-hint"),
-            Input(placeholder="All", id="mailbox_type", value="All"),
-            
-            Horizontal(
-                Button("Export Report", variant="success", id="submit"),
-                Button("Cancel", variant="default", id="cancel"),
-                classes="button-row"
-            ),
-            id="dialog"
-        )
+        param_lines = []
+        for key, value in self.parameters.items():
+            # Mask password fields
+            display_value = "••••••••" if "password" in key.lower() else value
+            param_lines.append(f"  {key}: {display_value}")
+        
+        params_text = "\n".join(param_lines)
+        
+        with Container(id="confirm-dialog"):
+            yield Label(f"🔍 Confirm Script Execution", id="confirm-title")
+            with ScrollableContainer():
+                yield Static(
+                    f"Script: {self.script_name}\n\nParameters:\n{params_text}\n\nExecute this script with the above parameters?",
+                    id="confirm-content"
+                )
+            yield Horizontal(
+                Static("", expand=True),
+                Static("[Enter] Execute  [R] Retry  [Esc] Cancel", classes="hotkey-text"),
+                Static("", expand=True),
+                id="confirm-buttons"
+            )
     
-    async def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "cancel":
-            self.app.pop_screen()
-        elif event.button.id == "submit":
-            data = {
-                "mailbox_type": self.query_one("#mailbox_type", Input).value.strip() or "All",
-            }
-            
-            valid_types = ["All", "UserMailbox", "SharedMailbox", "RoomMailbox", "EquipmentMailbox"]
-            if data["mailbox_type"] not in valid_types:
-                self.app.notify(f"⚠️ Invalid mailbox type. Use: {', '.join(valid_types)}", severity="error")
-                return
-            
-            logger.info(f"Exporting mailbox report for type: {data['mailbox_type']}")
-            self.dismiss(data)
+    def on_key(self, event) -> None:
+        if event.key == "enter":
+            self.result = "execute"
+            self.dismiss(self.result)
+        elif event.key == "r":
+            self.result = "retry"
+            self.dismiss(self.result)
+        elif event.key == "escape":
+            self.result = "cancel"
+            self.dismiss(self.result)
+
+
+# ============================================================================
+# SWITCHES MENU MODAL
+# ============================================================================
+
+class SwitchesModal(ModalScreen):
+    """Switches menu for utility commands"""
+    
+    BINDINGS = [
+        Binding("escape", "dismiss", "Close", show=False),
+        Binding("l", "list_licenses", "List Licenses", show=False),
+        Binding("m", "connect_graph", "Connect MgGraph", show=False),
+        Binding("e", "connect_exchange", "Connect Exchange", show=False),
+    ]
+    
+    def compose(self) -> ComposeResult:
+        with Container(id="switches-dialog"):
+            yield Label("🔧 Utility Switches", id="switches-title")
+            with ScrollableContainer():
+                yield Static("[l] List Available Licenses", classes="switch-option-key", markup=False)
+                yield Static("    View all Microsoft 365 licenses in tenant", classes="switch-option-desc")
+                yield Static("")
+                yield Static("[m] Connect to Microsoft Graph", classes="switch-option-key", markup=False)
+                yield Static("    Authenticate to Microsoft Graph API (supports MFA)", classes="switch-option-desc")
+                yield Static("")
+                yield Static("[e] Connect to Exchange Online", classes="switch-option-key", markup=False)
+                yield Static("    Authenticate to Exchange Online (supports MFA)", classes="switch-option-desc")
+                yield Static("")
+                yield Static("[Esc] Close Menu", classes="switch-option-key", markup=False)
+    
+    def action_list_licenses(self) -> None:
+        """Trigger list licenses command"""
+        self.dismiss("list_licenses")
+    
+    def action_connect_graph(self) -> None:
+        """Trigger Microsoft Graph connection"""
+        self.dismiss("connect_graph")
+    
+    def action_connect_exchange(self) -> None:
+        """Trigger Exchange Online connection"""
+        self.dismiss("connect_exchange")
 
 
 # ============================================================================
 # MAIN APPLICATION
 # ============================================================================
 
-class M365AdminApp(App):
-    """A professional Textual app for Microsoft 365 administration."""
+class M365AdminTUI(App):
+    """Terminal-style TUI for Microsoft 365 administration"""
     
-    # Load external stylesheets
-    CSS_PATH = [
-        Path(__file__).parent / "themes" / "app.tcss",
-        Path(__file__).parent / "themes" / "dialogs.tcss",
-    ]
+    CSS_PATH = Path(__file__).parent / "themes" / "terminal.tcss"
     
     BINDINGS = [
-        Binding("q", "quit", "Quit", show=True),
-        Binding("d", "toggle_dark", "Toggle Theme", show=True),
-        Binding("c", "clear_output", "Clear Output", show=True),
-        Binding("s", "toggle_switches", "Switches", show=True),
-        Binding("l", "list_licenses", "List Licenses", show=False),
-        Binding("up", "focus_previous", "Up", show=False),
-        Binding("down", "focus_next", "Down", show=False),
+        Binding("q", "quit", "Quit", show=False),
+        Binding("d", "toggle_theme", "Theme", show=False),
+        Binding("s", "open_switches", "Switches", show=False),
+        Binding("up", "cursor_up", "Up", show=False),
+        Binding("down", "cursor_down", "Down", show=False),
+        Binding("enter", "execute_script", "Execute", show=False),
     ]
     
     def __init__(self):
         super().__init__()
         self.config = Config()
-        self.switches_visible = False
-        logger.info("M365 Admin TUI started")
+        self.script_registry = ScriptRegistry(self.config.scripts_dir)
+        self.selected_index = 0
+        self.script_list = self.script_registry.get_script_list()
+        self.current_input_params = {}
+        self.current_script_info = None
+        self.awaiting_input = False
+        
+        logger.info("M365 Admin TUI started (Terminal Mode)")
         logger.info(f"Log file: {log_file}")
         logger.info(f"Output directory: {self.config.output_dir}")
+        logger.info(f"Found {len(self.script_list)} scripts")
     
     def compose(self) -> ComposeResult:
-        """Create child widgets for the app."""
-        yield Header()
+        """Create the 4-panel terminal layout"""
+        # Script List Panel - Top Left
+        with Container(id="script-list-panel"):
+            yield Label("📜 Available Scripts", id="script-list-title")
+            yield ScrollableContainer(
+                *self._create_script_items(),
+                id="script-list"
+            )
         
-        with Vertical(id="main-container"):
-            with Container(id="header-section"):
-                yield Label("🔷 Microsoft 365 Admin TUI 🔷", classes="app-title")
-                yield Label("Secure PowerShell Script Manager with OAuth2 & MFA Support", classes="app-subtitle")
-                yield Rule(line_style="heavy")
-                yield Label(f"📁 Reports will be saved to: {self.config.output_dir}", classes="info-text")
-            
-            with Container(id="menu-section"):
-                yield Label("⚙️  Available Operations", classes="section-title")
-                with Vertical(classes="menu-buttons"):
-                    yield Button("👤 Create User (Microsoft Graph)", id="create_user", variant="primary")
-                    yield Button("🔍 Audit Delegate Access", id="delegate_access", variant="default")
-                    yield Button("📊 Export Mailbox Report", id="mailbox_export", variant="default")
-                    yield Button("🔐 MFA Audit (All Users)", id="mfa_audit", variant="default")
-                    yield Button("🔑 Authentication Method Report", id="auth_method", variant="default")
-            
-            with Container(id="switches-section", classes="hidden"):
-                yield Label("🔧 Utility Switches", classes="section-title")
-                yield Label("Press the key shown to execute the command", classes="switches-hint")
-                with Vertical(classes="switches-menu"):
-                    yield Label("[L] List Available Licenses", id="switch-list-licenses", classes="switch-item")
-                    yield Label("[S] Close Switches Menu", id="switch-close", classes="switch-item-muted")
-            
-            with Container(id="output-section"):
-                yield Label("📋 Script Output", id="output-title")
-                with Container(id="output-container"):
-                    with VerticalScroll(id="output-scroll"):
-                        yield Static("Ready to execute commands...\nSelect an operation above to begin.", 
-                                   id="output-content", classes="output-ready")
+        # Output Panel - Top Right (preserve size/position)
+        with Container(id="output-panel"):
+            yield Label("📋 Output & Execution", id="output-title")
+            yield Static(
+                f"Ready.\n\nLog: {log_file.name}\nOutput: {self.config.output_dir}\n\nSelect a script and press Enter to execute.",
+                id="output-content",
+                classes="output-ready"
+            )
         
-        yield Footer()
+        # Hot Key Bar - Bottom Full Width
+        yield Container(
+            Static(
+                "[↑↓] Navigate  [Enter] Execute  [S] Switches  [D] Theme  [Q] Quit",
+                classes="hotkey-text"
+            ),
+            id="hotkey-bar"
+        )
+    
+    def _create_script_items(self) -> list:
+        """Create list items for scripts"""
+        items = []
+        for idx, script_name in enumerate(self.script_list):
+            script_info = self.script_registry.get_script_info(script_name)
+            display_name = self.script_registry.get_display_name(script_name)
+            
+            # Add indicator for scripts with switches
+            indicator = " 🔧" if script_info and script_info.has_switches else ""
+            
+            classes = "script-item"
+            if idx == self.selected_index:
+                classes += " script-item-selected"
+            
+            items.append(Static(f" {display_name}{indicator}", classes=classes))
+        
+        return items
     
     def on_mount(self) -> None:
-        """Called when app is mounted."""
+        """Called when app is mounted"""
         self.title = "M365 Admin TUI"
-        self.sub_title = f"Log: {log_file.name}"
-        self.theme = "textual-dark"  # Start with dark theme
+        self.sub_title = "Terminal Mode"
+        self.theme = "textual-dark"
         logger.info("Application mounted and ready")
+        
+        # Show initial script description
+        if self.script_list:
+            self._show_script_description()
     
-    def action_toggle_dark(self) -> None:
-        """Toggle dark mode."""
-        # Toggle between dark and light themes
+    def action_toggle_theme(self) -> None:
+        """Toggle between dark and light themes"""
         if self.theme == "textual-dark":
             self.theme = "textual-light"
-            logger.info("Theme changed to: light")
             self.notify("Theme: Light")
         else:
             self.theme = "textual-dark"
-            logger.info("Theme changed to: dark")
             self.notify("Theme: Dark")
     
-    def action_toggle_switches(self) -> None:
-        """Toggle the switches menu visibility."""
-        switches_section = self.query_one("#switches-section", Container)
-        self.switches_visible = not self.switches_visible
+    def action_cursor_up(self) -> None:
+        """Move selection up"""
+        if self.awaiting_input:
+            return  # Don't navigate during input
         
-        if self.switches_visible:
-            switches_section.remove_class("hidden")
-            self.notify("Switches menu opened - Press 'L' for licenses, 'S' to close", severity="information")
-            logger.info("Switches menu opened")
-        else:
-            switches_section.add_class("hidden")
-            self.notify("Switches menu closed")
-            logger.info("Switches menu closed")
+        if self.selected_index > 0:
+            self.selected_index -= 1
+            self._update_selection()
+            self._show_script_description()
     
-    def action_list_licenses(self) -> None:
-        """Run the list licenses command."""
-        # Only run if switches menu is visible
-        if not self.switches_visible:
+    def action_cursor_down(self) -> None:
+        """Move selection down"""
+        if self.awaiting_input:
+            return  # Don't navigate during input
+        
+        if self.selected_index < len(self.script_list) - 1:
+            self.selected_index += 1
+            self._update_selection()
+            self._show_script_description()
+    
+    def _update_selection(self) -> None:
+        """Update the visual selection highlight"""
+        container = self.query_one("#script-list", ScrollableContainer)
+        items = container.query(Static)
+        
+        for idx, item in enumerate(items):
+            if idx == self.selected_index:
+                item.set_classes("script-item script-item-selected")
+            else:
+                item.set_classes("script-item")
+    
+    def _show_script_description(self) -> None:
+        """Show description of currently selected script in output panel"""
+        if not self.script_list or self.awaiting_input:
             return
         
-        logger.info("List licenses command triggered from switches")
-        self.notify("📋 Listing available licenses...", severity="information")
-        self.run_list_licenses_script()
+        script_name = self.script_list[self.selected_index]
+        script_info = self.script_registry.get_script_info(script_name)
+        
+        if script_info:
+            display_name = self.script_registry.get_display_name(script_name)
+            desc = f"{'='*60}\n"
+            desc += f"Script: {display_name}\n"
+            desc += f"{'='*60}\n\n"
+            desc += f"{script_info.description}\n\n"
+            
+            if script_info.parameters:
+                desc += "Required Parameters:\n"
+                for param in script_info.parameters:
+                    req = "Required" if param.required else "Optional"
+                    desc += f"  • {param.prompt} ({req})\n"
+            else:
+                desc += "No parameters required.\n"
+            
+            if script_info.has_switches:
+                desc += f"\n{script_info.switch_description}\n"
+            
+            desc += f"\nPress [Enter] to execute this script."
+            
+            output = self.query_one("#output-content", Static)
+            output.update(desc)
+            output.set_classes("output-info")
+    
+    def action_execute_script(self) -> None:
+        """Execute the selected script"""
+        if self.awaiting_input:
+            return  # Don't execute during input
+        
+        if not self.script_list:
+            self.notify("No scripts available", severity="error")
+            return
+        
+        script_name = self.script_list[self.selected_index]
+        script_info = self.script_registry.get_script_info(script_name)
+        
+        if not script_info:
+            self.notify("Script info not found", severity="error")
+            return
+        
+        logger.info(f"Executing script: {script_name}")
+        self.run_script_workflow(script_info)
+    
+    def action_open_switches(self) -> None:
+        """Open the switches menu"""
+        self.open_switches_menu()
     
     @work(exclusive=True)
-    async def run_list_licenses_script(self) -> None:
-        """Execute the PowerShell script to list licenses."""
-        output_panel = self.query_one("#output-content", Static)
-        script_path = self.config.get_script_path("MgGraphUserCreation.ps1")
-        display_name = "📋 List Available Licenses"
+    async def open_switches_menu(self) -> None:
+        """Show switches menu modal"""
+        result = await self.push_screen_wait(SwitchesModal())
         
-        logger.info("Starting license listing script")
-        output_panel.update(f"🔄 Running {display_name}...\n\n⏳ Please wait, this may take a moment...\n\n🔐 You will be prompted to sign in with your admin credentials.\nMFA authentication is supported.")
-        output_panel.remove_class("output-ready", "output-success", "output-error", "output-info")
-        output_panel.set_class(True, "output-running")
-        
-        try:
-            # Check if pwsh is available
-            pwsh_check = await asyncio.create_subprocess_exec(
-                "which", "pwsh",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            await pwsh_check.communicate()
-            
-            if pwsh_check.returncode != 0:
-                raise Exception("PowerShell (pwsh) not found. Please install PowerShell Core.")
-            
-            # Run with -ListLicenses flag
-            process = await asyncio.create_subprocess_exec(
-                "pwsh",
-                "-NoProfile",
-                "-File",
-                str(script_path),
-                "-ListLicenses",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            
-            stdout, stderr = await process.communicate()
-            
-            if process.returncode == 0:
-                output_text = f"✅ {display_name} completed successfully!\n\n{'='*60}\n\n{stdout.decode()}"
-                output_panel.update(output_text)
-                output_panel.remove_class("output-ready", "output-running", "output-error", "output-info")
-                output_panel.set_class(True, "output-success")
-                self.notify(f"✅ Licenses listed!", severity="success")
-                logger.info("License listing completed successfully")
-            else:
-                error_text = stderr.decode() if stderr else "Unknown error"
-                output_text = f"❌ {display_name} failed!\n\n{'='*60}\n\nError:\n{error_text}\n\n{'='*60}\n\nStdout:\n{stdout.decode()}"
-                output_panel.update(output_text)
-                output_panel.remove_class("output-ready", "output-running", "output-success", "output-info")
-                output_panel.set_class(True, "output-error")
-                self.notify(f"❌ Failed - check output", severity="error")
-                logger.error(f"License listing failed: {error_text}")
-                
-        except Exception as e:
-            error_msg = str(e)
-            output_panel.update(f"❌ Error executing script: {error_msg}\n\nPlease check:\n• PowerShell Core (pwsh) is installed\n• Required PowerShell modules are installed\n• Network connectivity is working")
-            output_panel.remove_class("output-ready", "output-running", "output-success", "output-info")
-            output_panel.set_class(True, "output-error")
-            self.notify(f"❌ Error: {error_msg}", severity="error")
-            logger.error(f"Exception running license list: {error_msg}")
+        if result == "list_licenses":
+            logger.info("List licenses triggered from switches")
+            self.run_list_licenses()
+        elif result == "connect_graph":
+            logger.info("Connect to Microsoft Graph triggered from switches")
+            self.run_connect_graph()
+        elif result == "connect_exchange":
+            logger.info("Connect to Exchange Online triggered from switches")
+            self.run_connect_exchange()
     
-    def action_clear_output(self) -> None:
-        """Clear the output panel."""
+    @work(exclusive=True)
+    async def run_list_licenses(self) -> None:
+        """Run the list licenses command with streaming output"""
         output = self.query_one("#output-content", Static)
-        output.update("Output cleared.\nReady for next command...")
-        # Clear all status classes first
-        output.remove_class("output-running", "output-success", "output-error", "output-info")
-        output.set_class(True, "output-ready")
-        logger.info("Output cleared by user")
-    
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Handle button press events."""
-        button_id = event.button.id
-        logger.info(f"Button pressed: {button_id}")
+        script_path = self.config.get_script_path("MgGraphUserCreation.ps1")
         
-        # MFA Audit and Auth Method don't need input - run directly
-        if button_id == "mfa_audit":
-            self.run_script_no_input("mfa_audit.ps1", "🔐 MFA Audit")
-        elif button_id == "auth_method":
-            self.run_script_no_input("MFA_AuthMethod.ps1", "🔑 Authentication Method Report")
-        elif button_id in ["create_user", "delegate_access", "mailbox_export"]:
-            # Scripts that need input - show appropriate screen
-            self.show_input_screen(button_id)
-    
-    @work(exclusive=True)
-    async def show_input_screen(self, button_id: str) -> None:
-        """Show input screen and run script with parameters."""
-        screen_map = {
-            "create_user": CreateUserScreen(),
-            "delegate_access": DelegateAccessScreen(),
-            "mailbox_export": MailboxExportScreen(),
-        }
+        output.update("🔄 Listing available licenses...\n\n⏳ Connecting to Microsoft Graph...")
+        output.set_classes("output-running")
+        self.notify("Listing licenses...", severity="information")
         
-        if button_id in screen_map:
-            result = await self.push_screen_wait(screen_map[button_id])
-            if result:
-                await self.run_script_with_params(button_id, result)
-    
-    @work(exclusive=True)
-    async def run_script_no_input(self, script_name: str, display_name: str) -> None:
-        """Execute a PowerShell script that doesn't require input."""
-        output_panel = self.query_one("#output-content", Static)
-        script_path = self.config.get_script_path(script_name)
-        
-        logger.info(f"Starting script: {script_name}")
-        output_panel.update(f"🔄 Running {display_name}...\n\n⏳ Please wait, this may take a moment...\n\n🔐 You will be prompted to sign in with your admin credentials.\nMFA authentication is supported.")
-        output_panel.remove_class("output-ready", "output-success", "output-error", "output-info")
-        output_panel.set_class(True, "output-running")
-        self.notify(f"Starting {display_name}...", severity="information")
+        stdout_data = []
+        stderr_data = []
         
         try:
-            # Check if pwsh is available
-            pwsh_check = await asyncio.create_subprocess_exec(
-                "which", "pwsh",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            await pwsh_check.communicate()
-            
-            if pwsh_check.returncode != 0:
-                raise Exception("PowerShell (pwsh) not found. Please install PowerShell Core.")
-            
             process = await asyncio.create_subprocess_exec(
-                "pwsh",
-                "-NoProfile",
-                "-File",
-                str(script_path),
+                "pwsh", "-NoProfile", "-NonInteractive", "-File", str(script_path), "-ListLicenses",
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
+                stdin=asyncio.subprocess.DEVNULL
             )
             
-            stdout, stderr = await process.communicate()
+            # Stream output in real-time
+            async def read_stream(stream, data_list):
+                while True:
+                    line = await stream.readline()
+                    if not line:
+                        break
+                    decoded = line.decode('utf-8', errors='replace')
+                    data_list.append(decoded)
+                    
+                    # Update display every few lines
+                    if len(data_list) % 3 == 0:
+                        current_output = ''.join(stdout_data)
+                        output.update(f"🔄 Listing Licenses\n\n{'='*60}\n\n{current_output}")
             
-            if process.returncode == 0:
-                output_text = f"✅ {display_name} completed successfully!\n\n{'='*60}\n\n{stdout.decode()}"
-                output_panel.update(output_text)
-                output_panel.remove_class("output-ready", "output-running", "output-error", "output-info")
-                output_panel.set_class(True, "output-success")
-                self.notify(f"✅ {display_name} completed!", severity="success")
-                logger.info(f"Script completed successfully: {script_name}")
+            # Read both streams
+            await asyncio.gather(
+                read_stream(process.stdout, stdout_data),
+                read_stream(process.stderr, stderr_data)
+            )
+            
+            returncode = await process.wait()
+            
+            final_stdout = ''.join(stdout_data)
+            final_stderr = ''.join(stderr_data)
+            
+            if returncode == 0:
+                output.update(f"✅ License Listing Complete\n\n{'='*60}\n\n{final_stdout}")
+                output.set_classes("output-success")
+                self.notify("✅ Licenses listed!", severity="success")
             else:
-                error_text = stderr.decode() if stderr else "Unknown error"
-                output_text = f"❌ {display_name} failed!\n\n{'='*60}\n\nError:\n{error_text}\n\n{'='*60}\n\nStdout:\n{stdout.decode()}"
-                output_panel.update(output_text)
-                output_panel.remove_class("output-ready", "output-running", "output-success", "output-info")
-                output_panel.set_class(True, "output-error")
-                self.notify(f"❌ {display_name} failed - check output", severity="error")
-                logger.error(f"Script failed: {script_name} - {error_text}")
-                
+                error_text = final_stderr if final_stderr else "Unknown error"
+                output.update(f"❌ Failed to list licenses (exit code: {returncode})\n\n{error_text}")
+                output.set_classes("output-error")
+                self.notify(f"❌ Failed (exit {returncode})", severity="error")
+        
         except Exception as e:
-            error_msg = str(e)
-            output_panel.update(f"❌ Error executing script: {error_msg}\n\nPlease check:\n• PowerShell Core (pwsh) is installed\n• Required PowerShell modules are installed\n• Network connectivity is working")
-            output_panel.remove_class("output-ready", "output-running", "output-success", "output-info")
-            output_panel.set_class(True, "output-error")
-            self.notify(f"❌ Error: {error_msg}", severity="error")
-            logger.error(f"Exception running script {script_name}: {error_msg}")
+            output.update(f"❌ Error: {str(e)}")
+            output.set_classes("output-error")
+            self.notify(f"❌ Error: {str(e)}", severity="error")
     
     @work(exclusive=True)
-    async def run_script_with_params(self, script_type: str, params: dict) -> None:
-        """Execute a PowerShell script with parameters."""
-        output_panel = self.query_one("#output-content", Static)
+    async def run_connect_graph(self) -> None:
+        """Connect to Microsoft Graph with interactive authentication"""
+        output = self.query_one("#output-content", Static)
         
-        # Handle special case: List licenses only
-        if script_type == "create_user" and params.get("action") == "list_licenses":
-            script_path = self.config.get_script_path("MgGraphUserCreation.ps1")
-            display_name = "📋 List Available Licenses"
-            
-            logger.info("Listing available licenses")
-            output_panel.update(f"🔄 Running {display_name}...\n\n⏳ Please wait, this may take a moment...\n\n🔐 You will be prompted to sign in with your admin credentials.\nMFA authentication is supported.")
-            output_panel.remove_class("output-ready", "output-success", "output-error", "output-info")
-            output_panel.set_class(True, "output-running")
-            self.notify(f"Starting {display_name}...", severity="information")
-            
-            try:
-                pwsh_check = await asyncio.create_subprocess_exec(
-                    "which", "pwsh",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                await pwsh_check.communicate()
-                
-                if pwsh_check.returncode != 0:
-                    raise Exception("PowerShell (pwsh) not found. Please install PowerShell Core.")
-                
-                # Run with -ListLicenses flag
-                cmd = ["pwsh", "-NoProfile", "-File", str(script_path), "-ListLicenses"]
-                
-                process = await asyncio.create_subprocess_exec(
-                    *cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                
-                stdout, stderr = await process.communicate()
-                
-                if process.returncode == 0:
-                    output_text = f"✅ {display_name} completed successfully!\n\n{'='*60}\n\n{stdout.decode()}"
-                    output_panel.update(output_text)
-                    output_panel.remove_class("output-ready", "output-running", "output-error", "output-info")
-                    output_panel.set_class(True, "output-success")
-                    self.notify(f"✅ {display_name} completed!", severity="success")
-                    logger.info("License listing completed successfully")
-                else:
-                    error_text = stderr.decode() if stderr else "Unknown error"
-                    output_text = f"❌ {display_name} failed!\n\n{'='*60}\n\nError:\n{error_text}\n\n{'='*60}\n\nStdout:\n{stdout.decode()}"
-                    output_panel.update(output_text)
-                    output_panel.remove_class("output-ready", "output-running", "output-success", "output-info")
-                    output_panel.set_class(True, "output-error")
-                    self.notify(f"❌ {display_name} failed - check output", severity="error")
-                    logger.error(f"License listing failed: {error_text}")
-                    
-            except Exception as e:
-                error_msg = str(e)
-                output_panel.update(f"❌ Error executing script: {error_msg}\n\nPlease check:\n• PowerShell Core (pwsh) is installed\n• Required PowerShell modules are installed\n• Network connectivity is working")
-                output_panel.remove_class("output-ready", "output-running", "output-success", "output-info")
-                output_panel.set_class(True, "output-error")
-                self.notify(f"❌ Error: {error_msg}", severity="error")
-                logger.error(f"Exception running license list: {error_msg}")
-            
-            return
+        output.update("🔄 Connecting to Microsoft Graph...\n\n⏳ Please authenticate when prompted...")
+        output.set_classes("output-running")
+        self.notify("Connecting to Graph...", severity="information")
         
-        # Map script types to files and parameter construction
-        script_config = {
-            "create_user": {
-                "file": "MgGraphUserCreation.ps1",
-                "display_name": "👤 Create User",
-                "args": [
-                    "-DisplayName", params["display_name"],
-                    "-UserPrincipalName", params["upn"],
-                    "-UsageLocation", params["location"],
-                    "-Password", params["password"],
-                    "-LicenseIndex", params["license_index"],
-                ]
-            },
-            "delegate_access": {
-                "file": "Loop for Delegate access.ps1",
-                "display_name": "🔍 Delegate Access Audit",
-                "args": [
-                    "-TargetUserEmail", params["target_email"],
-                ]
-            },
-            "mailbox_export": {
-                "file": "Mailbox export.ps1",
-                "display_name": "📊 Mailbox Export",
-                "args": [
-                    "-MailboxType", params["mailbox_type"],
-                ]
-            },
-        }
-        
-        if script_type not in script_config:
-            self.notify("Unknown script type", severity="error")
-            logger.error(f"Unknown script type: {script_type}")
-            return
-        
-        config = script_config[script_type]
-        script_path = self.config.get_script_path(config["file"])
-        display_name = config["display_name"]
-        
-        logger.info(f"Starting script: {config['file']} with params: {params}")
-        output_panel.update(f"🔄 Running {display_name}...\n\n⏳ Please wait, this may take a moment...\n\n🔐 You will be prompted to sign in with your admin credentials.\nMFA authentication is supported.")
-        output_panel.remove_class("output-ready", "output-success", "output-error", "output-info")
-        output_panel.set_class(True, "output-running")
-        self.notify(f"Starting {display_name}...", severity="information")
+        stdout_data = []
+        stderr_data = []
         
         try:
-            # Check if pwsh is available
-            pwsh_check = await asyncio.create_subprocess_exec(
-                "which", "pwsh",
+            # Use PowerShell to connect
+            process = await asyncio.create_subprocess_exec(
+                "pwsh", "-NoProfile", "-NonInteractive", "-Command",
+                "Connect-MgGraph -Scopes 'User.Read.All','Organization.Read.All','Directory.Read.All'; "
+                "Write-Host 'Connected to Microsoft Graph' -ForegroundColor Green; "
+                "Get-MgContext | Select-Object -Property Account, Scopes, TenantId | Format-List",
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
+                stdin=asyncio.subprocess.DEVNULL
             )
-            await pwsh_check.communicate()
             
-            if pwsh_check.returncode != 0:
-                raise Exception("PowerShell (pwsh) not found. Please install PowerShell Core.")
+            # Stream output
+            async def read_stream(stream, data_list):
+                while True:
+                    line = await stream.readline()
+                    if not line:
+                        break
+                    decoded = line.decode('utf-8', errors='replace')
+                    data_list.append(decoded)
+                    
+                    if len(data_list) % 2 == 0:
+                        current_output = ''.join(stdout_data)
+                        output.update(f"🔄 Microsoft Graph\n\n{'='*60}\n\n{current_output}")
             
-            # Build command
-            cmd = ["pwsh", "-NoProfile", "-File", str(script_path)] + config["args"]
+            await asyncio.gather(
+                read_stream(process.stdout, stdout_data),
+                read_stream(process.stderr, stderr_data)
+            )
             
+            returncode = await process.wait()
+            
+            final_stdout = ''.join(stdout_data)
+            final_stderr = ''.join(stderr_data)
+            
+            if returncode == 0:
+                output.update(f"✅ Microsoft Graph - Connected\n\n{'='*60}\n\n{final_stdout}")
+                output.set_classes("output-success")
+                self.notify("✅ Connected to Graph!", severity="success")
+            else:
+                error_text = final_stderr if final_stderr else "Connection failed"
+                output.update(f"❌ Microsoft Graph - Failed\n\n{error_text}")
+                output.set_classes("output-error")
+                self.notify("❌ Connection failed", severity="error")
+        
+        except Exception as e:
+            output.update(f"❌ Error: {str(e)}")
+            output.set_classes("output-error")
+            self.notify(f"❌ Error: {str(e)}", severity="error")
+    
+    @work(exclusive=True)
+    async def run_connect_exchange(self) -> None:
+        """Connect to Exchange Online with interactive authentication"""
+        output = self.query_one("#output-content", Static)
+        
+        output.update("🔄 Connecting to Exchange Online...\n\n⏳ Please authenticate when prompted...")
+        output.set_classes("output-running")
+        self.notify("Connecting to Exchange...", severity="information")
+        
+        stdout_data = []
+        stderr_data = []
+        
+        try:
+            # Use PowerShell to connect
+            process = await asyncio.create_subprocess_exec(
+                "pwsh", "-NoProfile", "-NonInteractive", "-Command",
+                "Connect-ExchangeOnline -ShowBanner:$false; "
+                "Write-Host 'Connected to Exchange Online' -ForegroundColor Green; "
+                "Get-ConnectionInformation | Select-Object -Property UserPrincipalName, TenantId | Format-List",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                stdin=asyncio.subprocess.DEVNULL
+            )
+            
+            # Stream output
+            async def read_stream(stream, data_list):
+                while True:
+                    line = await stream.readline()
+                    if not line:
+                        break
+                    decoded = line.decode('utf-8', errors='replace')
+                    data_list.append(decoded)
+                    
+                    if len(data_list) % 2 == 0:
+                        current_output = ''.join(stdout_data)
+                        output.update(f"🔄 Exchange Online\n\n{'='*60}\n\n{current_output}")
+            
+            await asyncio.gather(
+                read_stream(process.stdout, stdout_data),
+                read_stream(process.stderr, stderr_data)
+            )
+            
+            returncode = await process.wait()
+            
+            final_stdout = ''.join(stdout_data)
+            final_stderr = ''.join(stderr_data)
+            
+            if returncode == 0:
+                output.update(f"✅ Exchange Online - Connected\n\n{'='*60}\n\n{final_stdout}")
+                output.set_classes("output-success")
+                self.notify("✅ Connected to Exchange!", severity="success")
+            else:
+                error_text = final_stderr if final_stderr else "Connection failed"
+                output.update(f"❌ Exchange Online - Failed\n\n{error_text}")
+                output.set_classes("output-error")
+                self.notify("❌ Connection failed", severity="error")
+        
+        except Exception as e:
+            output.update(f"❌ Error: {str(e)}")
+            output.set_classes("output-error")
+            self.notify(f"❌ Error: {str(e)}", severity="error")
+    
+    @work(exclusive=True)
+    async def run_script_workflow(self, script_info: ScriptInfo) -> None:
+        """Run the complete script workflow with parameter input modal"""
+        self.current_script_info = script_info
+        self.current_input_params = {}
+        
+        # If no parameters, execute directly
+        if not script_info.parameters:
+            await self.execute_script_direct(script_info, {})
+            return
+        
+        # Show parameter input modal and confirmation loop
+        await self.collect_parameters_enhanced()
+    
+    async def collect_parameters_enhanced(self) -> None:
+        """Collect parameters using enhanced modal dialog"""
+        display_name = self.script_registry.get_display_name(self.current_script_info.name)
+        
+        while True:
+            # Show parameter input modal
+            result = await self.push_screen_wait(
+                ParameterInputModal(
+                    display_name,
+                    self.current_script_info.parameters,
+                    self.current_input_params
+                )
+            )
+            
+            if result["action"] == "execute":
+                # Show confirmation with entered values
+                confirm_result = await self.push_screen_wait(
+                    ConfirmationModal(display_name, result["values"])
+                )
+                
+                if confirm_result == "execute":
+                    # Execute the script
+                    await self.execute_script_direct(self.current_script_info, result["values"])
+                    break
+                elif confirm_result == "retry":
+                    # Keep values and show input modal again
+                    self.current_input_params = result["values"]
+                    continue
+                else:
+                    # Cancelled from confirmation
+                    output = self.query_one("#output-content", Static)
+                    output.update("Script execution cancelled.")
+                    output.set_classes("output-info")
+                    self.notify("Cancelled", severity="information")
+                    break
+            else:
+                # Cancelled from input modal
+                output = self.query_one("#output-content", Static)
+                output.update("Script execution cancelled.")
+                output.set_classes("output-info")
+                self.notify("Cancelled", severity="information")
+                break
+    
+    async def execute_script_direct(self, script_info: ScriptInfo, params: dict) -> None:
+        """Execute the PowerShell script with streaming output"""
+        output = self.query_one("#output-content", Static)
+        
+        # Build command
+        cmd = ["pwsh", "-NoProfile", "-NonInteractive", "-File", str(script_info.path)]
+        for param_name, param_value in params.items():
+            cmd.extend([f"-{param_name}", param_value])
+        
+        display_name = self.script_registry.get_display_name(script_info.name)
+        output.update(f"🔄 Executing: {display_name}\n\n⏳ Starting...")
+        output.set_classes("output-running")
+        self.notify(f"Running {display_name}...", severity="information")
+        
+        stdout_data = []
+        stderr_data = []
+        
+        try:
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
+                stdin=asyncio.subprocess.DEVNULL  # Prevent any input prompts
             )
             
-            stdout, stderr = await process.communicate()
+            # Stream output in real-time
+            async def read_stream(stream, data_list, is_stderr=False):
+                while True:
+                    line = await stream.readline()
+                    if not line:
+                        break
+                    decoded = line.decode('utf-8', errors='replace')
+                    data_list.append(decoded)
+                    
+                    # Update display in real-time (every few lines to avoid lag)
+                    if len(data_list) % 5 == 0 or is_stderr:
+                        current_output = ''.join(stdout_data)
+                        if stderr_data:
+                            current_output += "\n\n[Warnings/Errors]\n" + ''.join(stderr_data)
+                        output.update(f"🔄 {display_name}\n\n{'='*60}\n\n{current_output}")
             
-            if process.returncode == 0:
-                output_text = f"✅ {display_name} completed successfully!\n\n{'='*60}\n\n{stdout.decode()}"
-                output_panel.update(output_text)
-                output_panel.remove_class("output-ready", "output-running", "output-error", "output-info")
-                output_panel.set_class(True, "output-success")
-                self.notify(f"✅ {display_name} completed!", severity="success")
-                logger.info(f"Script completed successfully: {config['file']}")
+            # Read both streams concurrently
+            await asyncio.gather(
+                read_stream(process.stdout, stdout_data),
+                read_stream(process.stderr, stderr_data, True)
+            )
+            
+            # Wait for process to complete
+            returncode = await process.wait()
+            
+            # Final output
+            final_stdout = ''.join(stdout_data)
+            final_stderr = ''.join(stderr_data)
+            
+            if returncode == 0:
+                output.update(f"✅ {display_name} - Success\n\n{'='*60}\n\n{final_stdout}")
+                output.set_classes("output-success")
+                self.notify("✅ Success!", severity="success")
             else:
-                error_text = stderr.decode() if stderr else "Unknown error"
-                output_text = f"❌ {display_name} failed!\n\n{'='*60}\n\nError:\n{error_text}\n\n{'='*60}\n\nStdout:\n{stdout.decode()}"
-                output_panel.update(output_text)
-                output_panel.remove_class("output-ready", "output-running", "output-success", "output-info")
-                output_panel.set_class(True, "output-error")
-                self.notify(f"❌ {display_name} failed - check output", severity="error")
-                logger.error(f"Script failed: {config['file']} - {error_text}")
-                
+                error_text = final_stderr if final_stderr else "Script exited with error"
+                output.update(f"❌ {display_name} - Failed (exit code: {returncode})\n\n{error_text}\n\n{'='*60}\n\nOutput:\n{final_stdout}")
+                output.set_classes("output-error")
+                self.notify(f"❌ Failed (exit {returncode})", severity="error")
+        
         except Exception as e:
-            error_msg = str(e)
-            output_panel.update(f"❌ Error executing script: {error_msg}\n\nPlease check:\n• PowerShell Core (pwsh) is installed\n• Required PowerShell modules are installed\n• Network connectivity is working")
-            output_panel.remove_class("output-ready", "output-running", "output-success", "output-info")
-            output_panel.set_class(True, "output-error")
-            self.notify(f"❌ Error: {error_msg}", severity="error")
-            logger.error(f"Exception running script {config['file']}: {error_msg}")
+            output.update(f"❌ Error executing script: {str(e)}")
+            output.set_classes("output-error")
+            self.notify(f"❌ Error: {str(e)}", severity="error")
 
 
 def main():
-    """Main entry point."""
-    app = M365AdminApp()
+    """Main entry point"""
+    app = M365AdminTUI()
     try:
         app.run()
     except Exception as e:

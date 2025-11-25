@@ -1,3 +1,5 @@
+# Create new Microsoft 365 user with optional license assignment via Microsoft Graph
+
 param(
     [Parameter(Mandatory=$false)]
     [string]$DisplayName,

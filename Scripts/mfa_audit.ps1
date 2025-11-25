@@ -1,3 +1,5 @@
+# Audit MFA registration status and authentication methods for all users
+
 param(
     [Parameter(Mandatory=$false)]
     [string]$OutputDirectory = ""

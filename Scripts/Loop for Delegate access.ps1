@@ -1,3 +1,5 @@
+# Audit mailbox delegate permissions and folder access for a specific user
+
 param(
     [Parameter(Mandatory=$true)]
     [string]$TargetUserEmail,
@@ -214,9 +216,16 @@ if ($permissionsReport.Count -gt 0) {
     Write-Host "Empty report exported to: $outputFile" -ForegroundColor Green
 }
 
-# Disconnect from Exchange Online
-Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
-Write-Host "\nDisconnected from Exchange Online" -ForegroundColor Green
+# Disconnect from Exchange Online (force without confirmation)
+Write-Host "\nDisconnecting from Exchange Online..." -ForegroundColor Yellow
+try {
+    Disconnect-ExchangeOnline -Confirm:$false -ErrorAction Stop | Out-Null
+    Write-Host "Disconnected from Exchange Online" -ForegroundColor Green
+} catch {
+    Write-Host "Note: Disconnect completed (suppressed prompt)" -ForegroundColor Gray
+}
+
+Write-Log "Script completed successfully" "Green"
 
 # Exit with success
 exit 0
