@@ -10,7 +10,7 @@ A professional Terminal User Interface (TUI) for managing Microsoft 365 via Powe
 - **Mailbox Reporting**: Export detailed mailbox information
 - **MFA & Auth Method Reports**: Audit authentication methods across your tenant
 - **Detailed Logging**: All operations logged for audit trails
-- **Professional UI**: Clean, intuitive terminal interface with dark/light themes
+- **Professional UI**: Warm, intuitive terminal interface
 
 ## Prerequisites
 
@@ -25,13 +25,35 @@ A professional Terminal User Interface (TUI) for managing Microsoft 365 via Powe
 
 ## Quick Start
 
-### 1. Clone the Repository
+The below commands will clone the most recent release, change into the directory, turn the setup script executable and run. They are provided for convenience and you are **strongly encouraged** to review any commands you get from a stranger on the internet before running. 
+
+### Ubuntu/Debian
 ```bash
-git clone https://github.com/BigZano/TUI-project.git
-cd TUI-project
+git clone https://github.com/BigZano/365Adm-TUI.git && cd 365Adm-TUI && chmod +x setup.sh && ./setup.sh
 ```
 
-### 2. Install Python Dependencies
+### macOS
+```bash
+git clone https://github.com/BigZano/365Adm-TUI.git && cd 365Adm-TUI && chmod +x setup.sh && ./setup.sh
+```
+
+### Windows (WSL2 users should use the Ubuntu install directions, or install according to your distro)
+```powershell
+git clone https://github.com/BigZano/365Adm-TUI.git; cd 365Adm-TUI; powershell -ExecutionPolicy Bypass -File .\setup.ps1
+```
+
+### Manual Setup (All Platforms)
+
+<details>
+<summary>Click to expand manual installation steps</summary>
+
+#### 1. Clone the Repository
+```bash
+git clone https://github.com/BigZano/365Adm-TUI.git
+cd 365Adm-TUI
+```
+
+#### 2. Install Python Dependencies
 ```bash
 # Using pip
 pip install -r requirements.txt
@@ -40,7 +62,7 @@ pip install -r requirements.txt
 uv pip install -r requirements.txt
 ```
 
-### 3. Install PowerShell Core
+#### 3. Install PowerShell Core
 If you don't have PowerShell Core installed:
 
 **Ubuntu/Debian:**
@@ -63,7 +85,7 @@ brew install --cask powershell
 pwsh --version
 ```
 
-### 4. Install Required PowerShell Modules
+#### 4. Install Required PowerShell Modules
 Run PowerShell and install the necessary modules:
 ```powershell
 pwsh
@@ -71,10 +93,13 @@ Install-Module Microsoft.Graph -Scope CurrentUser -Force
 Install-Module ExchangeOnlineManagement -Scope CurrentUser -Force
 ```
 
-### 5. Run the Application
+#### 5. Run the Application
 ```bash
 python main.py
 ```
+
+</details>
+
 
 ## Usage
 
@@ -103,21 +128,21 @@ When you launch the application, you'll see a menu with available operations:
 
 ```
 365Adm-TUI/
-├── main.py                 # Main TUI application
-├── lib/                    # Python library modules
+├── main.py                          # Main TUI application (terminal interface)
+├── lib/                             # Python library modules (logging functions here as well)
 │   ├── __init__.py
-│   ├── config.py          # Configuration management
-│   └── logger.py          # Logging utilities
-├── Scripts/               # PowerShell scripts
-│   ├── MgGraphUserCreation.ps1
+│   └── script_registry.py           # Auto-discovers PowerShell scripts
+├── Scripts/                         # PowerShell scripts (auto-discovered)
 │   ├── Loop for Delegate access.ps1
 │   ├── Mailbox export.ps1
 │   ├── mfa_audit.ps1
-│   └── MFA_AuthMethod.ps1
-├── logs/                  # Application logs (auto-created)
-├── requirements.txt       # Python dependencies
-├── pyproject.toml        # Project metadata
-└── README.md             # This file
+│   ├── MFA_AuthMethod.ps1
+│   └── MgGraphUserCreation.ps1
+├── themes/
+│   └── terminal.tcss                # Terminal UI styling (Textual CSS)
+├── logs/                            # Application logs (auto-created)
+├── requirements.txt                 # Python dependencies (I'm using uv, you can 100% use pip normally)
+└── README.md                        # This file
 ```
 
 ## Output and Reports
@@ -220,7 +245,15 @@ For issues and questions:
 
 ## Roadmap
 
-
+- Batch processing from CSV for user creation
+- Unattended tasks
+- Sharepoint Management
+- Script favorites/history
+- Custom key bindings
+- Additional utility switches
+- Progress bar
+- Custom output options
+- PowerShell syntax highlighting in script output window
 
 ---
 
